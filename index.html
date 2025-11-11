@@ -937,10 +937,17 @@
                             originalMapObj[key] = value;
                         });
                         
+                        // Calculate checksum of base data for verification
+                        const baseData = Array.from(originalRowMap.values());
+                        const dataChecksum = baseData.length + '_' + 
+                            (baseData[0] ? JSON.stringify(baseData[0]) : '') + '_' +
+                            (baseData[baseData.length - 1] ? JSON.stringify(baseData[baseData.length - 1]) : '');
+                        
                         await saveChangesToDB({
                             changes: currentChanges,
                             originalRowMap: originalMapObj,
-                            fileName: originalFileName
+                            fileName: originalFileName,
+                            dataChecksum: dataChecksum
                         });
                         
                         setHasSavedChanges(true);
@@ -968,6 +975,7 @@
                     version: '1.0',
                     timestamp: savedData.timestamp,
                     fileName: savedData.fileName,
+                    dataChecksum: savedData.dataChecksum || '',
                     changesCount: savedData.changes.length,
                     changes: savedData.changes,
                     originalRowMap: savedData.originalRowMap
@@ -1004,7 +1012,8 @@
                     await saveChangesToDB({
                         changes: importData.changes,
                         originalRowMap: importData.originalRowMap || {},
-                        fileName: importData.fileName || 'imported.csv'
+                        fileName: importData.fileName || 'imported.csv',
+                        dataChecksum: importData.dataChecksum || ''
                     });
                     
                     setHasSavedChanges(true);
@@ -1109,35 +1118,50 @@
                 const text = await file.text();
                 const parsedData = await parseCSV(text);
                 
-                setData(parsedData);
-                const rowMap = new Map();
-                parsedData.forEach(row => {
-                    rowMap.set(getRowId(row), { ...row });
-                });
-                setOriginalRowMap(rowMap);
-                setOriginalFileName(file.name);
-                setSelectedItems(new Set());
-                
-                // Check if there are saved changes to apply
+                // IMPORTANT: Check for saved changes BEFORE setting any state
+                // This prevents race conditions with auto-save
+                let shouldApplySavedChanges = false;
                 if (hasSavedChanges) {
                     // Load the saved changes to check the filename
                     const savedData = await loadChangesFromDB();
                     const savedFileName = savedData?.fileName || 'unknown.csv';
                     
-                    // Only apply changes if they're from the same file
-                    if (savedFileName === file.name) {
-                        const shouldApply = confirm(`Found ${savedChangesCount} saved changes from this file. Apply them?`);
-                        if (shouldApply) {
-                            await applySavedChanges(parsedData, rowMap);
-                        } else {
+                    // Calculate a simple checksum of the base data to verify it's truly the same file
+                    const newDataChecksum = parsedData.length + '_' + 
+                        (parsedData[0] ? JSON.stringify(parsedData[0]) : '') + '_' +
+                        (parsedData[parsedData.length - 1] ? JSON.stringify(parsedData[parsedData.length - 1]) : '');
+                    const savedChecksum = savedData?.dataChecksum || '';
+                    
+                    // Only apply changes if filename AND checksum match
+                    if (savedFileName === file.name && savedChecksum === newDataChecksum) {
+                        shouldApplySavedChanges = confirm(`Found ${savedChangesCount} saved changes from this exact file. Apply them?`);
+                        if (!shouldApplySavedChanges) {
                             // User chose not to apply, clear the saved changes
                             await clearSavedChanges();
                         }
                     } else {
-                        // Different file - automatically clear old saved changes without asking
-                        console.log(`Clearing old saved changes from different file (${savedFileName})`);
+                        // Different file or different data - automatically clear old saved changes without asking
+                        console.log(`Clearing old saved changes (different file or data)`);
                         await clearSavedChanges();
                     }
+                }
+                
+                // Now set the data (after clearing old changes if needed)
+                const rowMap = new Map();
+                parsedData.forEach(row => {
+                    rowMap.set(getRowId(row), { ...row });
+                });
+                
+                setOriginalFileName(file.name);
+                setSelectedItems(new Set());
+                
+                // Apply saved changes if user confirmed, otherwise just set fresh data
+                if (shouldApplySavedChanges) {
+                    await applySavedChanges(parsedData, rowMap);
+                } else {
+                    // Set fresh data with no changes
+                    setData(parsedData);
+                    setOriginalRowMap(rowMap);
                 }
             };
 
