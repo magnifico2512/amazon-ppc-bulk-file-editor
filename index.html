@@ -921,6 +921,7 @@
             // Auto-save changes to IndexedDB
             useEffect(() => {
                 if (data.length === 0) return; // Don't save empty state
+                if (originalRowMap.size === 0) return; // Don't save if originalRowMap not ready
                 
                 const saveChanges = async () => {
                     // Get current changes
@@ -929,6 +930,8 @@
                         const original = originalRowMap.get(rowId);
                         return !original || hasRowChanged(original, row);
                     });
+                    
+                    console.log('Auto-save check: found', currentChanges.length, 'changes');
                     
                     if (currentChanges.length > 0) {
                         // Convert originalRowMap to plain object for storage
@@ -943,6 +946,8 @@
                             (baseData[0] ? JSON.stringify(baseData[0]) : '') + '_' +
                             (baseData[baseData.length - 1] ? JSON.stringify(baseData[baseData.length - 1]) : '');
                         
+                        console.log('Auto-saving', currentChanges.length, 'changes with checksum:', dataChecksum);
+                        
                         await saveChangesToDB({
                             changes: currentChanges,
                             originalRowMap: originalMapObj,
@@ -954,6 +959,7 @@
                         setSavedChangesCount(currentChanges.length);
                     } else {
                         // No changes, clear any saved data
+                        console.log('No changes detected - clearing saved data');
                         await clearSavedChanges();
                     }
                 };
@@ -1118,35 +1124,46 @@
                 const text = await file.text();
                 const parsedData = await parseCSV(text);
                 
-                // IMPORTANT: Check for saved changes BEFORE setting any state
-                // This prevents race conditions with auto-save
+                // CRITICAL: Always check IndexedDB directly, not just the state variable
+                // This prevents issues where state hasn't updated yet
+                const savedData = await loadChangesFromDB();
                 let shouldApplySavedChanges = false;
-                if (hasSavedChanges) {
-                    // Load the saved changes to check the filename
-                    const savedData = await loadChangesFromDB();
-                    const savedFileName = savedData?.fileName || 'unknown.csv';
+                
+                if (savedData && savedData.changes && savedData.changes.length > 0) {
+                    const savedFileName = savedData.fileName || 'unknown.csv';
                     
                     // Calculate a simple checksum of the base data to verify it's truly the same file
                     const newDataChecksum = parsedData.length + '_' + 
                         (parsedData[0] ? JSON.stringify(parsedData[0]) : '') + '_' +
                         (parsedData[parsedData.length - 1] ? JSON.stringify(parsedData[parsedData.length - 1]) : '');
-                    const savedChecksum = savedData?.dataChecksum || '';
+                    const savedChecksum = savedData.dataChecksum || '';
+                    
+                    console.log('=== FILE UPLOAD CHECK ===');
+                    console.log('New file:', file.name, 'Saved file:', savedFileName);
+                    console.log('New checksum:', newDataChecksum);
+                    console.log('Saved checksum:', savedChecksum);
                     
                     // Only apply changes if filename AND checksum match
-                    if (savedFileName === file.name && savedChecksum === newDataChecksum) {
-                        shouldApplySavedChanges = confirm(`Found ${savedChangesCount} saved changes from this exact file. Apply them?`);
+                    if (savedFileName === file.name && savedChecksum === newDataChecksum && savedChecksum !== '') {
+                        shouldApplySavedChanges = confirm(`Found ${savedData.changes.length} saved changes from this exact file. Apply them?`);
                         if (!shouldApplySavedChanges) {
                             // User chose not to apply, clear the saved changes
+                            console.log('User declined to apply - clearing saved changes');
                             await clearSavedChanges();
                         }
                     } else {
-                        // Different file or different data - automatically clear old saved changes without asking
-                        console.log(`Clearing old saved changes (different file or data)`);
+                        // Different file or different data - automatically clear old saved changes
+                        console.log('File/data mismatch - automatically clearing saved changes');
                         await clearSavedChanges();
                     }
+                } else {
+                    // No saved changes in DB - ensure state is clean
+                    console.log('No saved changes found in IndexedDB');
+                    setHasSavedChanges(false);
+                    setSavedChangesCount(0);
                 }
                 
-                // Now set the data (after clearing old changes if needed)
+                // Build the row map for the new data
                 const rowMap = new Map();
                 parsedData.forEach(row => {
                     rowMap.set(getRowId(row), { ...row });
@@ -1155,13 +1172,23 @@
                 setOriginalFileName(file.name);
                 setSelectedItems(new Set());
                 
-                // Apply saved changes if user confirmed, otherwise just set fresh data
+                // Apply saved changes if user confirmed, otherwise set fresh data
                 if (shouldApplySavedChanges) {
+                    console.log('Applying saved changes');
                     await applySavedChanges(parsedData, rowMap);
                 } else {
-                    // Set fresh data with no changes
+                    // CRITICAL: Set both data and originalRowMap atomically
+                    // Use a batch state update to prevent auto-save from seeing mismatched state
+                    console.log('Setting fresh data - no saved changes to apply');
+                    console.log('Rows:', parsedData.length);
+                    
+                    // Set data and original map together
                     setData(parsedData);
                     setOriginalRowMap(rowMap);
+                    
+                    // Force clear any lingering saved state
+                    setHasSavedChanges(false);
+                    setSavedChangesCount(0);
                 }
             };
 
@@ -2109,8 +2136,15 @@
                                     <button
                                         onClick={async () => {
                                             if (confirm('Are you sure you want to discard all saved changes? This will revert all modifications and remove all new items.')) {
+                                                console.log('=== DISCARDING ALL CHANGES ===');
+                                                
                                                 // Clear saved changes from storage
                                                 await clearSavedChanges();
+                                                
+                                                // Explicitly clear all state
+                                                setHasSavedChanges(false);
+                                                setSavedChangesCount(0);
+                                                setShowRecoveryBanner(false);
                                                 
                                                 // Also revert the in-memory data to original state
                                                 if (data.length > 0 && originalRowMap.size > 0) {
@@ -2125,7 +2159,11 @@
                                                     
                                                     setData(newData);
                                                     setSelectedItems(new Set());
+                                                    
+                                                    console.log('Reverted to original data:', newData.length, 'rows');
                                                 }
+                                                
+                                                console.log('=== DISCARD COMPLETE ===');
                                             }
                                         }}
                                         className="px-3 py-1.5 bg-gray-600 text-white rounded text-xs font-medium hover:bg-gray-700"
