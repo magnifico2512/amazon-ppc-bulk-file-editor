@@ -1345,7 +1345,7 @@
                 setSelectedItems(newSelected);
             };
 
-            const undoAllChanges = () => {
+            const undoAllChanges = async () => {
                 if (!confirm(`Undo all ${changes.length} changes? This will revert all modifications and remove all new items.`)) return;
                 
                 // Revert all modified items and remove all new items
@@ -1360,6 +1360,9 @@
                 
                 setData(newData);
                 setSelectedItems(new Set());
+                
+                // Also clear any saved changes from storage
+                await clearSavedChanges();
             };
 
             // Listen for keywords added from ad group dropdown
@@ -2081,8 +2084,24 @@
                                     </label>
                                     <button
                                         onClick={async () => {
-                                            if (confirm('Are you sure you want to discard all saved changes? This cannot be undone.')) {
+                                            if (confirm('Are you sure you want to discard all saved changes? This will revert all modifications and remove all new items.')) {
+                                                // Clear saved changes from storage
                                                 await clearSavedChanges();
+                                                
+                                                // Also revert the in-memory data to original state
+                                                if (data.length > 0 && originalRowMap.size > 0) {
+                                                    const newData = data.filter(row => {
+                                                        const rowId = getRowId(row);
+                                                        return originalRowMap.has(rowId);
+                                                    }).map(row => {
+                                                        const rowId = getRowId(row);
+                                                        const original = originalRowMap.get(rowId);
+                                                        return { ...original };
+                                                    });
+                                                    
+                                                    setData(newData);
+                                                    setSelectedItems(new Set());
+                                                }
                                             }
                                         }}
                                         className="px-3 py-1.5 bg-gray-600 text-white rounded text-xs font-medium hover:bg-gray-700"
