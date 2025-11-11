@@ -1627,7 +1627,8 @@
                             return normalizeKeyword(rowData['Keyword Text'] || '') === normalizedKeyword;
                         });
                         
-                        const matchTypes = [...new Set(existing.map(e => e['Match Type']))].filter(Boolean);
+                        // Get ALL match types (including paused) for display purposes
+                        const allMatchTypes = [...new Set(existing.map(e => e['Match Type']))].filter(Boolean);
                         
                         // Check if keywords are truly active (keyword, campaign, and ad group all enabled)
                         const enabledKeywords = existing.filter(e => {
@@ -1651,6 +1652,9 @@
                             
                             return campaignEnabled && adGroupEnabled;
                         });
+                        
+                        // FIXED: Only count match types from ENABLED keywords for filtering purposes
+                        const activeMatchTypes = [...new Set(enabledKeywords.map(e => e['Match Type']))].filter(Boolean);
                         
                         const pausedKeywords = existing.filter(e => {
                             const keywordPaused = (e.State || '').toLowerCase() === 'paused';
@@ -1678,7 +1682,8 @@
                             keyword: keyword,
                             exists: existing.length > 0,
                             count: existing.length,
-                            matchTypes: matchTypes,
+                            matchTypes: activeMatchTypes,  // FIXED: Use only enabled keywords for filtering
+                            allMatchTypes: allMatchTypes,  // Keep all match types for display
                             metadata: metadata,
                             hasMetadata: tableColumns.length > 1,
                             enabledCount: enabledKeywords.length,
@@ -1774,8 +1779,8 @@
                             return normalizeKeyword(rowData['Keyword Text'] || '') === normalizedKeyword;
                         });
                         
-                        // Get unique match types
-                        const matchTypes = [...new Set(existing.map(e => e['Match Type']))].filter(Boolean);
+                        // Get ALL unique match types (including paused) for display purposes
+                        const allMatchTypes = [...new Set(existing.map(e => e['Match Type']))].filter(Boolean);
                         
                         // Check if keywords are truly active (keyword, campaign, and ad group all enabled)
                         const enabledKeywords = existing.filter(e => {
@@ -1791,6 +1796,9 @@
                             return campaignEnabled && adGroupEnabled;
                         });
                         
+                        // FIXED: Only count match types from ENABLED keywords for filtering purposes
+                        const activeMatchTypes = [...new Set(enabledKeywords.map(e => e['Match Type']))].filter(Boolean);
+                        
                         const pausedKeywords = existing.filter(e => {
                             const keywordPaused = (e.State || '').toLowerCase() === 'paused';
                             const campaignRow = data.find(r => r.Entity === 'Campaign' && r['Campaign ID'] === e['Campaign ID']);
@@ -1805,7 +1813,8 @@
                             keyword: keyword,
                             exists: existing.length > 0,
                             count: existing.length,
-                            matchTypes: matchTypes,
+                            matchTypes: activeMatchTypes,  // FIXED: Use only enabled keywords for filtering
+                            allMatchTypes: allMatchTypes,  // Keep all match types for display
                             metadata: metadata,
                             hasMetadata: true,
                             enabledCount: enabledKeywords.length,
@@ -1856,8 +1865,8 @@
                             return normalizeKeyword(row['Keyword Text'] || '') === normalizedKeyword;
                         });
                         
-                        // Get unique match types
-                        const matchTypes = [...new Set(existing.map(e => e['Match Type']))].filter(Boolean);
+                        // Get ALL unique match types (including paused) for display purposes
+                        const allMatchTypes = [...new Set(existing.map(e => e['Match Type']))].filter(Boolean);
                         
                         // Check if keywords are truly active (keyword, campaign, and ad group all enabled)
                         const enabledKeywords = existing.filter(e => {
@@ -1873,6 +1882,9 @@
                             return campaignEnabled && adGroupEnabled;
                         });
                         
+                        // FIXED: Only count match types from ENABLED keywords for filtering purposes
+                        const activeMatchTypes = [...new Set(enabledKeywords.map(e => e['Match Type']))].filter(Boolean);
+                        
                         const pausedKeywords = existing.filter(e => {
                             const keywordPaused = (e.State || '').toLowerCase() === 'paused';
                             const campaignRow = data.find(r => r.Entity === 'Campaign' && r['Campaign ID'] === e['Campaign ID']);
@@ -1887,7 +1899,8 @@
                             keyword: keyword,
                             exists: existing.length > 0,
                             count: existing.length,
-                            matchTypes: matchTypes,
+                            matchTypes: activeMatchTypes,  // FIXED: Use only enabled keywords for filtering
+                            allMatchTypes: allMatchTypes,  // Keep all match types for display
                             hasMetadata: false,
                             enabledCount: enabledKeywords.length,
                             pausedCount: pausedKeywords.length,
