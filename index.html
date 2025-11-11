@@ -2328,6 +2328,7 @@
                                                 data={getFilteredData()}
                                                 activeTab={activeTab}
                                                 updateRow={updateRow}
+                                                setData={setData}
                                                 selectedItems={selectedItems}
                                                 toggleSelection={toggleSelection}
                                                 selectAll={selectAll}
@@ -3859,7 +3860,8 @@
         function DataTable({ 
             data, 
             activeTab, 
-            updateRow, 
+            updateRow,
+            setData,
             selectedItems, 
             toggleSelection, 
             selectAll, 
@@ -3962,12 +3964,20 @@
                 const selections = selectedKeywords[adGroupId] || new Set();
                 if (selections.size === 0) return;
 
-                selections.forEach(keywordId => {
-                    const kwRow = allData.find(r => r['Keyword ID'] === keywordId);
-                    if (kwRow) {
-                        updateRow(kwRow, 'State', newState);
+                // Create a new data array with all selected keywords updated
+                const newData = allData.map(row => {
+                    // Check if this row is a selected keyword
+                    if (selections.has(row['Keyword ID']) && row.Entity === 'Keyword') {
+                        return {
+                            ...row,
+                            State: newState
+                        };
                     }
+                    return row;
                 });
+
+                // Update the data in one batch
+                setData(newData);
 
                 // Clear selections after action
                 setSelectedKeywords(prev => ({
