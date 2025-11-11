@@ -5230,6 +5230,8 @@
             const [bulkCampaigns, setBulkCampaigns] = useState([]);
             const [createdCampaigns, setCreatedCampaigns] = useState([]);
             const [loadedExisting, setLoadedExisting] = useState(false);
+            const [showExistingCampaigns, setShowExistingCampaigns] = useState(false);
+            const [selectedExistingCampaign, setSelectedExistingCampaign] = useState('');
 
             const campaigns = data.filter(r => r.Entity === 'Campaign');
             const adGroups = data.filter(r => r.Entity === 'Ad Group');
@@ -5441,6 +5443,209 @@
                 parsedCampaigns.sort((a, b) => b.id - a.id);
                 setCreatedCampaigns(parsedCampaigns.slice(0, 50));
                 setLoadedExisting(true);
+            };
+
+            // NEW FEATURE: Get all existing campaigns (not just newly created ones)
+            const getAllExistingCampaigns = () => {
+                if (!data || data.length === 0) return [];
+                
+                // Get ALL campaigns regardless of operation type
+                const allCampaignRows = data.filter(r => r.Entity === 'Campaign');
+                
+                const existingCampaigns = [];
+                const processedCampaignIds = new Set();
+                
+                allCampaignRows.forEach(campaignRow => {
+                    const campaignId = campaignRow['Campaign ID'];
+                    const campaignName = getCampaignName(campaignRow);
+                    
+                    if (!campaignId || !campaignName || processedCampaignIds.has(campaignId)) return;
+                    processedCampaignIds.add(campaignId);
+                    
+                    existingCampaigns.push({
+                        campaignId: campaignId,
+                        campaignName: campaignName,
+                        portfolioName: getPortfolioName(campaignRow) || '',
+                        dailyBudget: campaignRow['Daily Budget'] || '',
+                        targetingType: campaignRow['Targeting Type'] || 'Manual',
+                        biddingStrategy: campaignRow['Bidding Strategy'] || 'Dynamic bids - down only',
+                        state: campaignRow['State'] || ''
+                    });
+                });
+                
+                return existingCampaigns.sort((a, b) => a.campaignName.localeCompare(b.campaignName));
+            };
+
+            // NEW FEATURE: Load selected existing campaign into bulk editor for duplication/editing
+            const loadSelectedExistingCampaign = () => {
+                if (!selectedExistingCampaign) {
+                    alert('Please select a campaign to duplicate');
+                    return;
+                }
+                
+                const campaignId = selectedExistingCampaign;
+                
+                // Find the campaign row
+                const campaignRow = data.find(r => 
+                    r.Entity === 'Campaign' && 
+                    r['Campaign ID'] === campaignId
+                );
+                
+                if (!campaignRow) {
+                    alert('Campaign not found');
+                    return;
+                }
+                
+                const campaignName = getCampaignName(campaignRow);
+                
+                // Find all ad groups for this campaign
+                const adGroupRows = data.filter(r => 
+                    r.Entity === 'Ad Group' && 
+                    r['Campaign ID'] === campaignId
+                );
+                
+                // If no ad groups, just duplicate the campaign structure
+                if (adGroupRows.length === 0) {
+                    // Get placement modifiers
+                    const topOfSearchRow = data.find(r => 
+                        r.Entity === 'Campaign Placement' && 
+                        r['Campaign ID'] === campaignId && 
+                        r['Placement'] === 'Placement Top'
+                    );
+                    const restOfSearchRow = data.find(r => 
+                        r.Entity === 'Campaign Placement' && 
+                        r['Campaign ID'] === campaignId && 
+                        r['Placement'] === 'Placement Rest of Search'
+                    );
+                    const productPagesRow = data.find(r => 
+                        r.Entity === 'Campaign Placement' && 
+                        r['Campaign ID'] === campaignId && 
+                        r['Placement'] === 'Placement Product Page'
+                    );
+                    
+                    setBulkCampaigns(prev => [...prev, {
+                        id: Date.now() + Math.random(),
+                        portfolioId: campaignRow['Portfolio ID'] || '',
+                        portfolioName: getPortfolioName(campaignRow) || '',
+                        campaignName: `${campaignName} (Copy)`,
+                        dailyBudget: campaignRow['Daily Budget'] || '',
+                        targetingType: campaignRow['Targeting Type'] || 'Manual',
+                        biddingStrategy: campaignRow['Bidding Strategy'] || 'Dynamic bids - down only',
+                        adGroupName: '',
+                        defaultBid: '',
+                        products: '',
+                        keywords: '',
+                        matchType: 'Broad',
+                        keywordBid: '',
+                        productTargets: '',
+                        targetingMethod: 'asin',
+                        productTargetBid: '',
+                        topOfSearchMod: topOfSearchRow ? topOfSearchRow['Percentage'] || '' : '',
+                        restOfSearchMod: restOfSearchRow ? restOfSearchRow['Percentage'] || '' : '',
+                        productPagesMod: productPagesRow ? productPagesRow['Percentage'] || '' : ''
+                    }]);
+                } else {
+                    // Create a campaign entry for each ad group
+                    adGroupRows.forEach(adGroupRow => {
+                        const adGroupId = adGroupRow['Ad Group ID'];
+                        const adGroupName = getAdGroupName(adGroupRow);
+                        
+                        // Get keywords for this ad group
+                        const keywords = data
+                            .filter(r => 
+                                r.Entity === 'Keyword' && 
+                                r['Campaign ID'] === campaignId && 
+                                r['Ad Group ID'] === adGroupId
+                            )
+                            .map(r => r['Keyword Text'])
+                            .filter(k => k)
+                            .join('\n');
+                        
+                        // Get products (SKUs) for this ad group
+                        const products = data
+                            .filter(r => 
+                                r.Entity === 'Product Ad' && 
+                                r['Campaign ID'] === campaignId && 
+                                r['Ad Group ID'] === adGroupId
+                            )
+                            .map(r => r.SKU)
+                            .filter(s => s)
+                            .join('\n');
+                        
+                        // Get product targets for this ad group
+                        const productTargets = data
+                            .filter(r => 
+                                r.Entity === 'Product Targeting' && 
+                                r['Campaign ID'] === campaignId && 
+                                r['Ad Group ID'] === adGroupId
+                            )
+                            .map(r => r['Product Targeting Expression'])
+                            .filter(t => t)
+                            .join('\n');
+                        
+                        // Get match type from first keyword
+                        const firstKeyword = data.find(r => 
+                            r.Entity === 'Keyword' && 
+                            r['Campaign ID'] === campaignId && 
+                            r['Ad Group ID'] === adGroupId
+                        );
+                        const matchType = firstKeyword ? firstKeyword['Match Type'] || 'Broad' : 'Broad';
+                        
+                        // Get keyword bid from first keyword
+                        const keywordBid = firstKeyword ? firstKeyword['Bid'] || '' : '';
+                        
+                        // Get product target bid from first product target
+                        const firstProductTarget = data.find(r => 
+                            r.Entity === 'Product Targeting' && 
+                            r['Campaign ID'] === campaignId && 
+                            r['Ad Group ID'] === adGroupId
+                        );
+                        const productTargetBid = firstProductTarget ? firstProductTarget['Bid'] || '' : '';
+                        
+                        // Get placement modifiers
+                        const topOfSearchRow = data.find(r => 
+                            r.Entity === 'Campaign Placement' && 
+                            r['Campaign ID'] === campaignId && 
+                            r['Placement'] === 'Placement Top'
+                        );
+                        const restOfSearchRow = data.find(r => 
+                            r.Entity === 'Campaign Placement' && 
+                            r['Campaign ID'] === campaignId && 
+                            r['Placement'] === 'Placement Rest of Search'
+                        );
+                        const productPagesRow = data.find(r => 
+                            r.Entity === 'Campaign Placement' && 
+                            r['Campaign ID'] === campaignId && 
+                            r['Placement'] === 'Placement Product Page'
+                        );
+                        
+                        setBulkCampaigns(prev => [...prev, {
+                            id: Date.now() + Math.random(),
+                            portfolioId: campaignRow['Portfolio ID'] || '',
+                            portfolioName: getPortfolioName(campaignRow) || '',
+                            campaignName: `${campaignName} (Copy)`,
+                            dailyBudget: campaignRow['Daily Budget'] || '',
+                            targetingType: campaignRow['Targeting Type'] || 'Manual',
+                            biddingStrategy: campaignRow['Bidding Strategy'] || 'Dynamic bids - down only',
+                            adGroupName: `${adGroupName} (Copy)`,
+                            defaultBid: adGroupRow['Ad Group Default Bid'] || '',
+                            products: products,
+                            keywords: keywords,
+                            matchType: matchType,
+                            keywordBid: keywordBid,
+                            productTargets: productTargets,
+                            targetingMethod: 'asin',
+                            productTargetBid: productTargetBid,
+                            topOfSearchMod: topOfSearchRow ? topOfSearchRow['Percentage'] || '' : '',
+                            restOfSearchMod: restOfSearchRow ? restOfSearchRow['Percentage'] || '' : '',
+                            productPagesMod: productPagesRow ? productPagesRow['Percentage'] || '' : ''
+                        }]);
+                    });
+                }
+                
+                // Close the selector and reset
+                setShowExistingCampaigns(false);
+                setSelectedExistingCampaign('');
             };
 
             // Load existing campaigns when entering bulk mode
@@ -5944,6 +6149,59 @@
                                 {data.length > 0 && (
                                     <div className="bg-orange-50 p-3 rounded-lg text-xs text-orange-900 mb-3 border border-orange-200">
                                         ⚠️ <strong>Duplicate Checker Active:</strong> Keywords and SKUs that already exist in your campaigns will be highlighted in orange with a warning icon. Hover over the ⚠️ to see which campaign/ad group contains the duplicate.
+                                    </div>
+                                )}
+
+                                {/* NEW FEATURE: Load Existing Campaign Section */}
+                                {data.length > 0 && getAllExistingCampaigns().length > 0 && (
+                                    <div className="mb-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h4 className="text-sm font-semibold text-purple-900">📋 Duplicate Existing Campaign</h4>
+                                            <button
+                                                onClick={() => setShowExistingCampaigns(!showExistingCampaigns)}
+                                                className="text-xs px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
+                                            >
+                                                {showExistingCampaigns ? 'Hide' : 'Show Campaigns'}
+                                            </button>
+                                        </div>
+                                        
+                                        {showExistingCampaigns && (
+                                            <div className="space-y-2 mt-3">
+                                                <p className="text-xs text-purple-800">
+                                                    Select an existing campaign to duplicate and edit. All ad groups, keywords, products, and settings will be copied.
+                                                </p>
+                                                <div className="flex gap-2">
+                                                    <select
+                                                        value={selectedExistingCampaign}
+                                                        onChange={(e) => setSelectedExistingCampaign(e.target.value)}
+                                                        className="flex-1 px-3 py-2 border border-purple-300 rounded text-sm"
+                                                    >
+                                                        <option value="">-- Select a campaign to duplicate --</option>
+                                                        {getAllExistingCampaigns().map((camp, idx) => (
+                                                            <option key={idx} value={camp.campaignId}>
+                                                                {camp.campaignName} {camp.state === 'archived' ? '(Archived)' : ''}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <button
+                                                        onClick={loadSelectedExistingCampaign}
+                                                        disabled={!selectedExistingCampaign}
+                                                        className={`px-4 py-2 rounded text-sm font-medium ${
+                                                            selectedExistingCampaign
+                                                                ? 'bg-purple-600 text-white hover:bg-purple-700'
+                                                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                        }`}
+                                                    >
+                                                        Load & Edit
+                                                    </button>
+                                                </div>
+                                                {selectedExistingCampaign && (
+                                                    <div className="text-xs text-purple-700 mt-2">
+                                                        <strong>Note:</strong> The campaign will be added to your draft list below where you can edit the name, budget, targets, bids, and all other settings before creating it.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
