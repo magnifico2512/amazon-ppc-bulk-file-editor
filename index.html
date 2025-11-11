@@ -5232,6 +5232,8 @@
             const [loadedExisting, setLoadedExisting] = useState(false);
             const [showExistingCampaigns, setShowExistingCampaigns] = useState(false);
             const [selectedExistingCampaign, setSelectedExistingCampaign] = useState('');
+            const [campaignSearchText, setCampaignSearchText] = useState('');
+            const [selectedPortfolioFilter, setSelectedPortfolioFilter] = useState('');
 
             const campaigns = data.filter(r => r.Entity === 'Campaign');
             const adGroups = data.filter(r => r.Entity === 'Ad Group');
@@ -5474,6 +5476,36 @@
                 });
                 
                 return existingCampaigns.sort((a, b) => a.campaignName.localeCompare(b.campaignName));
+            };
+
+            // NEW FEATURE: Get filtered campaigns based on search and portfolio
+            const getFilteredCampaigns = () => {
+                let campaigns = getAllExistingCampaigns();
+                
+                // Filter by search text
+                if (campaignSearchText.trim()) {
+                    const searchLower = campaignSearchText.toLowerCase();
+                    campaigns = campaigns.filter(camp => 
+                        camp.campaignName.toLowerCase().includes(searchLower) ||
+                        (camp.portfolioName && camp.portfolioName.toLowerCase().includes(searchLower))
+                    );
+                }
+                
+                // Filter by portfolio
+                if (selectedPortfolioFilter) {
+                    campaigns = campaigns.filter(camp => 
+                        camp.portfolioName === selectedPortfolioFilter
+                    );
+                }
+                
+                return campaigns;
+            };
+
+            // NEW FEATURE: Get unique portfolios from all campaigns
+            const getUniquePortfolios = () => {
+                const campaigns = getAllExistingCampaigns();
+                const portfolios = [...new Set(campaigns.map(c => c.portfolioName).filter(p => p))];
+                return portfolios.sort();
             };
 
             // NEW FEATURE: Load selected existing campaign into bulk editor for duplication/editing
@@ -6166,37 +6198,109 @@
                                         </div>
                                         
                                         {showExistingCampaigns && (
-                                            <div className="space-y-2 mt-3">
+                                            <div className="space-y-3 mt-3">
                                                 <p className="text-xs text-purple-800">
                                                     Select an existing campaign to duplicate and edit. All ad groups, keywords, products, and settings will be copied.
                                                 </p>
-                                                <div className="flex gap-2">
-                                                    <select
-                                                        value={selectedExistingCampaign}
-                                                        onChange={(e) => setSelectedExistingCampaign(e.target.value)}
-                                                        className="flex-1 px-3 py-2 border border-purple-300 rounded text-sm"
-                                                    >
-                                                        <option value="">-- Select a campaign to duplicate --</option>
-                                                        {getAllExistingCampaigns().map((camp, idx) => (
-                                                            <option key={idx} value={camp.campaignId}>
-                                                                {camp.campaignName} {camp.state === 'archived' ? '(Archived)' : ''}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                    <button
-                                                        onClick={loadSelectedExistingCampaign}
-                                                        disabled={!selectedExistingCampaign}
-                                                        className={`px-4 py-2 rounded text-sm font-medium ${
-                                                            selectedExistingCampaign
-                                                                ? 'bg-purple-600 text-white hover:bg-purple-700'
-                                                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                                        }`}
-                                                    >
-                                                        Load & Edit
-                                                    </button>
+                                                
+                                                {/* Search and Filter Row */}
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <label className="text-xs font-medium text-purple-900 block mb-1">
+                                                            🔍 Search Campaigns
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Search by campaign or portfolio name..."
+                                                            value={campaignSearchText}
+                                                            onChange={(e) => setCampaignSearchText(e.target.value)}
+                                                            className="w-full px-3 py-2 border border-purple-300 rounded text-sm"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-medium text-purple-900 block mb-1">
+                                                            📁 Filter by Portfolio
+                                                        </label>
+                                                        <select
+                                                            value={selectedPortfolioFilter}
+                                                            onChange={(e) => setSelectedPortfolioFilter(e.target.value)}
+                                                            className="w-full px-3 py-2 border border-purple-300 rounded text-sm"
+                                                        >
+                                                            <option value="">All Portfolios</option>
+                                                            {getUniquePortfolios().map((portfolio, idx) => (
+                                                                <option key={idx} value={portfolio}>
+                                                                    {portfolio}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
                                                 </div>
+
+                                                {/* Campaign Selection and Load Button */}
+                                                <div className="flex gap-2">
+                                                    <div className="flex-1">
+                                                        <label className="text-xs font-medium text-purple-900 block mb-1">
+                                                            Select Campaign {getFilteredCampaigns().length > 0 && `(${getFilteredCampaigns().length} found)`}
+                                                        </label>
+                                                        <select
+                                                            value={selectedExistingCampaign}
+                                                            onChange={(e) => setSelectedExistingCampaign(e.target.value)}
+                                                            className="w-full px-3 py-2 border border-purple-300 rounded text-sm"
+                                                            size="6"
+                                                        >
+                                                            <option value="">-- Select a campaign to duplicate --</option>
+                                                            {getFilteredCampaigns().map((camp, idx) => (
+                                                                <option key={idx} value={camp.campaignId}>
+                                                                    {camp.campaignName} {camp.portfolioName && `[${camp.portfolioName}]`} {camp.state === 'archived' ? '(Archived)' : ''}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <div className="flex items-end">
+                                                        <button
+                                                            onClick={loadSelectedExistingCampaign}
+                                                            disabled={!selectedExistingCampaign}
+                                                            className={`px-6 py-2 rounded text-sm font-medium h-10 ${
+                                                                selectedExistingCampaign
+                                                                    ? 'bg-purple-600 text-white hover:bg-purple-700'
+                                                                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                            }`}
+                                                        >
+                                                            Load & Edit
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Clear Filters Button */}
+                                                {(campaignSearchText || selectedPortfolioFilter) && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setCampaignSearchText('');
+                                                            setSelectedPortfolioFilter('');
+                                                        }}
+                                                        className="text-xs text-purple-700 hover:text-purple-900 underline"
+                                                    >
+                                                        Clear all filters
+                                                    </button>
+                                                )}
+
+                                                {getFilteredCampaigns().length === 0 && (
+                                                    <div className="text-center py-4 text-purple-700 bg-purple-100 rounded border border-purple-200">
+                                                        <p className="text-sm">No campaigns found matching your filters.</p>
+                                                        <button
+                                                            onClick={() => {
+                                                                setCampaignSearchText('');
+                                                                setSelectedPortfolioFilter('');
+                                                            }}
+                                                            className="mt-2 text-xs text-purple-600 hover:text-purple-800 underline"
+                                                        >
+                                                            Clear filters
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                
                                                 {selectedExistingCampaign && (
-                                                    <div className="text-xs text-purple-700 mt-2">
+                                                    <div className="text-xs text-purple-700 mt-2 p-2 bg-purple-100 rounded">
                                                         <strong>Note:</strong> The campaign will be added to your draft list below where you can edit the name, budget, targets, bids, and all other settings before creating it.
                                                     </div>
                                                 )}
