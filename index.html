@@ -495,6 +495,7 @@
             const [matchTypeMissing, setMatchTypeMissing] = useState({ broad: false, phrase: false, exact: false, negativeExact: false, negativePhrase: false });
             const [hasSavedChanges, setHasSavedChanges] = useState(false);
             const [savedChangesCount, setSavedChangesCount] = useState(0);
+            const isLoadingFile = useRef(false); // Prevent auto-save during file upload
             const [showRecoveryBanner, setShowRecoveryBanner] = useState(false);
             const [originalFileName, setOriginalFileName] = useState('');
             const [referenceKeywordSelections, setReferenceKeywordSelections] = useState(new Set());
@@ -920,6 +921,12 @@
             
             // Auto-save changes to IndexedDB
             useEffect(() => {
+                // CRITICAL: Don't auto-save during file upload to prevent race conditions
+                if (isLoadingFile.current) {
+                    console.log('Auto-save BLOCKED: File is currently loading');
+                    return;
+                }
+                
                 if (data.length === 0) return; // Don't save empty state
                 if (originalRowMap.size === 0) return; // Don't save if originalRowMap not ready
                 
@@ -1121,6 +1128,11 @@
                 const file = event.target.files[0];
                 if (!file) return;
 
+                // CRITICAL: Set loading flag to prevent auto-save race condition
+                isLoadingFile.current = true;
+                console.log('=== FILE UPLOAD STARTED ===');
+                console.log('Loading flag set to true - auto-save will be blocked');
+
                 const text = await file.text();
                 const parsedData = await parseCSV(text);
                 
@@ -1190,6 +1202,14 @@
                     setHasSavedChanges(false);
                     setSavedChangesCount(0);
                 }
+                
+                // CRITICAL: Wait a bit to ensure React has updated state, then clear loading flag
+                // This prevents auto-save from running with mismatched state
+                setTimeout(() => {
+                    isLoadingFile.current = false;
+                    console.log('Loading flag cleared - auto-save can run again');
+                    console.log('=== FILE UPLOAD COMPLETE ===');
+                }, 100);
             };
 
             const downloadCSV = () => {
