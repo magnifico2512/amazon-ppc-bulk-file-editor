@@ -1120,11 +1120,22 @@
                 
                 // Check if there are saved changes to apply
                 if (hasSavedChanges) {
-                    const shouldApply = confirm(`Found ${savedChangesCount} saved changes. Apply them to this file?`);
-                    if (shouldApply) {
-                        await applySavedChanges(parsedData, rowMap);
+                    // Load the saved changes to check the filename
+                    const savedData = await loadChangesFromDB();
+                    const savedFileName = savedData?.fileName || 'unknown.csv';
+                    
+                    // Only apply changes if they're from the same file
+                    if (savedFileName === file.name) {
+                        const shouldApply = confirm(`Found ${savedChangesCount} saved changes from this file. Apply them?`);
+                        if (shouldApply) {
+                            await applySavedChanges(parsedData, rowMap);
+                        } else {
+                            // User chose not to apply, clear the saved changes
+                            await clearSavedChanges();
+                        }
                     } else {
-                        // User chose not to apply, clear the saved changes
+                        // Different file - automatically clear old saved changes without asking
+                        console.log(`Clearing old saved changes from different file (${savedFileName})`);
                         await clearSavedChanges();
                     }
                 }
