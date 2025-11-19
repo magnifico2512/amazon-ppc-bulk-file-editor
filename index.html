@@ -5247,6 +5247,27 @@
             const [selectedExistingCampaign, setSelectedExistingCampaign] = useState('');
             const [campaignSearchText, setCampaignSearchText] = useState('');
             const [selectedPortfolioFilter, setSelectedPortfolioFilter] = useState('');
+            const [singleKeywordMode, setSingleKeywordMode] = useState(false);
+            const [singleKeywordTemplate, setSingleKeywordTemplate] = useState({
+                campaignName: '',
+                portfolioName: '',
+                portfolioId: '',
+                dailyBudget: '',
+                targetingType: 'Manual',
+                biddingStrategy: 'Dynamic bids - down only',
+                adGroupName: '',
+                defaultBid: '',
+                keywords: '',
+                matchType: 'Exact',
+                keywordBid: '',
+                products: '',
+                productTargets: '',
+                targetingMethod: 'asin',
+                productTargetBid: '',
+                topOfSearchMod: '',
+                restOfSearchMod: '',
+                productPagesMod: ''
+            });
 
             const campaigns = data.filter(r => r.Entity === 'Campaign');
             const adGroups = data.filter(r => r.Entity === 'Ad Group');
@@ -5743,6 +5764,168 @@
             };
 
             const createBulkCampaigns = () => {
+                // Handle Single Keyword Mode
+                if (singleKeywordMode) {
+                    if (!singleKeywordTemplate.campaignName) {
+                        alert('Please enter a campaign name template');
+                        return;
+                    }
+                    if (!singleKeywordTemplate.keywords) {
+                        alert('Please enter at least one keyword');
+                        return;
+                    }
+                    if (!singleKeywordTemplate.campaignName.includes('{keyword}')) {
+                        alert('Campaign name must include {keyword} placeholder');
+                        return;
+                    }
+
+                    const keywords = singleKeywordTemplate.keywords.split('\n').map(k => k.trim()).filter(k => k);
+                    if (keywords.length === 0) {
+                        alert('Please enter at least one keyword');
+                        return;
+                    }
+
+                    const newItems = [];
+                    keywords.forEach(keyword => {
+                        const campaignName = singleKeywordTemplate.campaignName.replace(/{keyword}/g, keyword);
+                        const campaignId = campaignName.replace(/[^a-zA-Z0-9]/g, '_');
+                        const adGroupName = singleKeywordTemplate.adGroupName 
+                            ? singleKeywordTemplate.adGroupName.replace(/{keyword}/g, keyword)
+                            : '';
+                        const adGroupId = adGroupName ? adGroupName.replace(/[^a-zA-Z0-9]/g, '_') : '';
+
+                        // Create Campaign
+                        newItems.push(createRow('Campaign', {
+                            'Campaign ID': campaignId,
+                            'Campaign Name': campaignName,
+                            'Campaign Name (Informational only)': campaignName,
+                            'Portfolio ID': singleKeywordTemplate.portfolioId || '',
+                            'Portfolio Name (Informational only)': singleKeywordTemplate.portfolioName || '',
+                            'Daily Budget': singleKeywordTemplate.dailyBudget || '',
+                            'Targeting Type': singleKeywordTemplate.targetingType,
+                            'Bidding Strategy': singleKeywordTemplate.biddingStrategy
+                        }));
+
+                        // Add Placement bid modifiers if specified
+                        if (singleKeywordTemplate.topOfSearchMod && singleKeywordTemplate.topOfSearchMod !== '0' && singleKeywordTemplate.topOfSearchMod !== '') {
+                            newItems.push(createRow('Campaign Placement', {
+                                'Campaign ID': campaignId,
+                                'Campaign Name (Informational only)': campaignName,
+                                'Placement': 'Placement Top',
+                                'Percentage': singleKeywordTemplate.topOfSearchMod,
+                                'Portfolio Name (Informational only)': singleKeywordTemplate.portfolioName || ''
+                            }));
+                        }
+                        
+                        if (singleKeywordTemplate.restOfSearchMod && singleKeywordTemplate.restOfSearchMod !== '0' && singleKeywordTemplate.restOfSearchMod !== '') {
+                            newItems.push(createRow('Campaign Placement', {
+                                'Campaign ID': campaignId,
+                                'Campaign Name (Informational only)': campaignName,
+                                'Placement': 'Placement Rest of Search',
+                                'Percentage': singleKeywordTemplate.restOfSearchMod,
+                                'Portfolio Name (Informational only)': singleKeywordTemplate.portfolioName || ''
+                            }));
+                        }
+                        
+                        if (singleKeywordTemplate.productPagesMod && singleKeywordTemplate.productPagesMod !== '0' && singleKeywordTemplate.productPagesMod !== '') {
+                            newItems.push(createRow('Campaign Placement', {
+                                'Campaign ID': campaignId,
+                                'Campaign Name (Informational only)': campaignName,
+                                'Placement': 'Placement Product Page',
+                                'Percentage': singleKeywordTemplate.productPagesMod,
+                                'Portfolio Name (Informational only)': singleKeywordTemplate.portfolioName || ''
+                            }));
+                        }
+
+                        // Create Ad Group if specified
+                        if (adGroupName) {
+                            newItems.push(createRow('Ad Group', {
+                                'Campaign ID': campaignId,
+                                'Campaign Name (Informational only)': campaignName,
+                                'Ad Group ID': adGroupId,
+                                'Ad Group Name': adGroupName,
+                                'Ad Group Name (Informational only)': adGroupName,
+                                'Ad Group Default Bid': singleKeywordTemplate.defaultBid || '',
+                                'Portfolio Name (Informational only)': singleKeywordTemplate.portfolioName || ''
+                            }));
+
+                            // Add the single keyword to this campaign
+                            newItems.push(createRow('Keyword', {
+                                'Campaign ID': campaignId,
+                                'Campaign Name (Informational only)': campaignName,
+                                'Ad Group ID': adGroupId,
+                                'Ad Group Name (Informational only)': adGroupName,
+                                'Keyword Text': keyword,
+                                'Match Type': singleKeywordTemplate.matchType,
+                                'Bid': singleKeywordTemplate.keywordBid || singleKeywordTemplate.defaultBid || '',
+                                'Portfolio Name (Informational only)': singleKeywordTemplate.portfolioName || ''
+                            }));
+
+                            // Add Products
+                            if (singleKeywordTemplate.products) {
+                                const skus = singleKeywordTemplate.products.split('\n').map(s => s.trim()).filter(s => s);
+                                skus.forEach(sku => {
+                                    newItems.push(createRow('Product Ad', {
+                                        'Campaign ID': campaignId,
+                                        'Campaign Name (Informational only)': campaignName,
+                                        'Ad Group ID': adGroupId,
+                                        'Ad Group Name (Informational only)': adGroupName,
+                                        'SKU': sku,
+                                        'Portfolio Name (Informational only)': singleKeywordTemplate.portfolioName || ''
+                                    }));
+                                });
+                            }
+
+                            // Add Product Targets
+                            if (singleKeywordTemplate.productTargets) {
+                                const targets = singleKeywordTemplate.productTargets.split('\n').map(t => t.trim()).filter(t => t);
+                                const targetingMethod = singleKeywordTemplate.targetingMethod || 'asin';
+                                
+                                targets.forEach(target => {
+                                    const formattedExpression = formatProductTargetingExpression(target, targetingMethod);
+                                    
+                                    newItems.push(createRow('Product Targeting', {
+                                        'Campaign ID': campaignId,
+                                        'Campaign Name (Informational only)': campaignName,
+                                        'Ad Group ID': adGroupId,
+                                        'Ad Group Name (Informational only)': adGroupName,
+                                        'Product Targeting Expression': formattedExpression,
+                                        'Bid': singleKeywordTemplate.productTargetBid || singleKeywordTemplate.defaultBid || '',
+                                        'Portfolio Name (Informational only)': singleKeywordTemplate.portfolioName || ''
+                                    }));
+                                });
+                            }
+                        }
+                    });
+
+                    if (newItems.length > 0) {
+                        onAdd(newItems);
+                        // Reset the template
+                        setSingleKeywordTemplate({
+                            campaignName: '',
+                            portfolioName: '',
+                            portfolioId: '',
+                            dailyBudget: '',
+                            targetingType: 'Manual',
+                            biddingStrategy: 'Dynamic bids - down only',
+                            adGroupName: '',
+                            defaultBid: '',
+                            keywords: '',
+                            matchType: 'Exact',
+                            keywordBid: '',
+                            products: '',
+                            productTargets: '',
+                            targetingMethod: 'asin',
+                            productTargetBid: '',
+                            topOfSearchMod: '',
+                            restOfSearchMod: '',
+                            productPagesMod: ''
+                        });
+                    }
+                    return;
+                }
+
+                // Normal Bulk Mode
                 if (bulkCampaigns.length === 0) {
                     alert('Please add at least one campaign');
                     return;
@@ -6179,26 +6362,304 @@
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-lg font-semibold">Campaign Builder - Bulk Mode</h3>
-                                    <button
-                                        onClick={() => setBulkMode(false)}
-                                        className="text-sm text-blue-600 hover:text-blue-800 underline"
-                                    >
-                                        Switch to Single Mode
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setSingleKeywordMode(!singleKeywordMode);
+                                                if (!singleKeywordMode) {
+                                                    setBulkCampaigns([]);
+                                                    setCreatedCampaigns([]);
+                                                }
+                                            }}
+                                            className={`text-sm px-3 py-1 rounded ${
+                                                singleKeywordMode 
+                                                    ? 'bg-green-600 text-white hover:bg-green-700' 
+                                                    : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                            }`}
+                                        >
+                                            {singleKeywordMode ? '✓ Single Keyword Mode' : 'Single Keyword Mode'}
+                                        </button>
+                                        <button
+                                            onClick={() => setBulkMode(false)}
+                                            className="text-sm text-blue-600 hover:text-blue-800 underline"
+                                        >
+                                            Switch to Single Mode
+                                        </button>
+                                    </div>
                                 </div>
                                 
-                                <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-900 mb-3">
-                                    💡 Build multiple campaigns at once! Your newly created campaigns (marked as NEW in Changes tab) are shown above. Duplicate or edit them to create similar campaigns. Add new rows below to build more.
-                                </div>
+                                {!singleKeywordMode ? (
+                                    <>
+                                        <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-900 mb-3">
+                                            💡 Build multiple campaigns at once! Your newly created campaigns (marked as NEW in Changes tab) are shown above. Duplicate or edit them to create similar campaigns. Add new rows below to build more.
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="bg-green-50 p-3 rounded-lg text-xs text-green-900 mb-3 border border-green-200">
+                                        💡 <strong>Single Keyword Campaign Mode:</strong> Create multiple campaigns where each keyword gets its own campaign. Use {'{keyword}'} as a placeholder in the campaign name (e.g., "Brand | Product | {'{keyword}'}"). The placeholder will be replaced with each keyword from your list.
+                                    </div>
+                                )}
 
-                                {data.length > 0 && (
+                                {singleKeywordMode && (
+                                    <div className="bg-white p-4 rounded-lg border-2 border-green-300 space-y-3">
+                                        <h4 className="font-semibold text-green-900">Single Keyword Campaign Template</h4>
+                                        
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                    Campaign Name Template * <span className="text-green-700">(include {'{keyword}'})</span>
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={singleKeywordTemplate.campaignName}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, campaignName: e.target.value})}
+                                                    placeholder="KK | SSB | DE | BM_35x16_green_US | SP | SKC | MANUAL | EXACT | {keyword}"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                            
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Portfolio (optional)</label>
+                                                <input
+                                                    type="text"
+                                                    value={singleKeywordTemplate.portfolioName}
+                                                    onChange={(e) => {
+                                                        const portfolioName = e.target.value;
+                                                        const portfolioId = portfolioName ? portfoliosMap.get(portfolioName) : '';
+                                                        setSingleKeywordTemplate({
+                                                            ...singleKeywordTemplate,
+                                                            portfolioName: portfolioName,
+                                                            portfolioId: portfolioId || ''
+                                                        });
+                                                    }}
+                                                    list="portfolio-list-skc"
+                                                    placeholder="Portfolio name"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                />
+                                                {portfolios.length > 0 && (
+                                                    <datalist id="portfolio-list-skc">
+                                                        {portfolios.map(p => <option key={p} value={p} />)}
+                                                    </datalist>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-4 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Daily Budget</label>
+                                                <input
+                                                    type="text"
+                                                    value={singleKeywordTemplate.dailyBudget}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, dailyBudget: e.target.value})}
+                                                    placeholder="10.00"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Targeting Type</label>
+                                                <select
+                                                    value={singleKeywordTemplate.targetingType}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, targetingType: e.target.value})}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                >
+                                                    <option value="Manual">Manual</option>
+                                                    <option value="Auto">Auto</option>
+                                                </select>
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Bidding Strategy</label>
+                                                <select
+                                                    value={singleKeywordTemplate.biddingStrategy}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, biddingStrategy: e.target.value})}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                >
+                                                    <option value="Dynamic bids - down only">Dynamic bids - down only</option>
+                                                    <option value="Dynamic bids - up and down">Dynamic bids - up and down</option>
+                                                    <option value="Fixed bid">Fixed bid</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <hr className="my-2" />
+                                        <h5 className="text-sm font-medium text-gray-800">Ad Group Settings</h5>
+
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                    Ad Group Name <span className="text-green-700">(can include {'{keyword}'})</span>
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={singleKeywordTemplate.adGroupName}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, adGroupName: e.target.value})}
+                                                    placeholder="Ad Group - {keyword}"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Default Bid</label>
+                                                <input
+                                                    type="text"
+                                                    value={singleKeywordTemplate.defaultBid}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, defaultBid: e.target.value})}
+                                                    placeholder="0.50"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Match Type</label>
+                                                <select
+                                                    value={singleKeywordTemplate.matchType}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, matchType: e.target.value})}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                >
+                                                    <option value="Broad">Broad</option>
+                                                    <option value="Phrase">Phrase</option>
+                                                    <option value="Exact">Exact</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Keyword Bid (optional)</label>
+                                                <input
+                                                    type="text"
+                                                    value={singleKeywordTemplate.keywordBid}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, keywordBid: e.target.value})}
+                                                    placeholder="0.50"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                Keywords * <span className="text-green-700">(one per line - each will create a separate campaign)</span>
+                                            </label>
+                                            <textarea
+                                                value={singleKeywordTemplate.keywords}
+                                                onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, keywords: e.target.value})}
+                                                placeholder={'bath mats\nshower mat\nbath mat non slip anti mould'}
+                                                rows="6"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
+                                            />
+                                            <div className="text-xs text-gray-600 mt-1">
+                                                {singleKeywordTemplate.keywords.split('\n').filter(k => k.trim()).length} keyword(s) will create {singleKeywordTemplate.keywords.split('\n').filter(k => k.trim()).length} campaign(s)
+                                            </div>
+                                        </div>
+
+                                        <details className="bg-gray-50 p-3 rounded">
+                                            <summary className="cursor-pointer text-sm font-medium text-gray-700">Optional: Products (SKUs)</summary>
+                                            <div className="mt-3">
+                                                <textarea
+                                                    value={singleKeywordTemplate.products}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, products: e.target.value})}
+                                                    placeholder="SKU1&#10;SKU2"
+                                                    rows="3"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                />
+                                                <p className="text-xs text-gray-600 mt-1">These SKUs will be added to all campaigns</p>
+                                            </div>
+                                        </details>
+
+                                        <details className="bg-gray-50 p-3 rounded">
+                                            <summary className="cursor-pointer text-sm font-medium text-gray-700">Optional: Product Targeting</summary>
+                                            <div className="mt-3 space-y-2">
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <select
+                                                        value={singleKeywordTemplate.targetingMethod}
+                                                        onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, targetingMethod: e.target.value})}
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                    >
+                                                        <option value="asin">Individual ASINs</option>
+                                                        <option value="asin-expanded">Expanded ASIN</option>
+                                                        <option value="category">Category</option>
+                                                    </select>
+                                                    <input
+                                                        type="text"
+                                                        value={singleKeywordTemplate.productTargetBid}
+                                                        onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, productTargetBid: e.target.value})}
+                                                        placeholder="Product Target Bid"
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                    />
+                                                </div>
+                                                <textarea
+                                                    value={singleKeywordTemplate.productTargets}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, productTargets: e.target.value})}
+                                                    placeholder="B0CL21ZDS3"
+                                                    rows="3"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
+                                                />
+                                            </div>
+                                        </details>
+
+                                        <details className="bg-gray-50 p-3 rounded">
+                                            <summary className="cursor-pointer text-sm font-medium text-gray-700">Optional: Placement Bid Adjustments</summary>
+                                            <div className="mt-3 grid grid-cols-3 gap-3">
+                                                <div>
+                                                    <label className="block text-xs text-gray-700 mb-1">Top of Search %</label>
+                                                    <input
+                                                        type="text"
+                                                        value={singleKeywordTemplate.topOfSearchMod}
+                                                        onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, topOfSearchMod: e.target.value})}
+                                                        placeholder="0"
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-gray-700 mb-1">Rest of Search %</label>
+                                                    <input
+                                                        type="text"
+                                                        value={singleKeywordTemplate.restOfSearchMod}
+                                                        onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, restOfSearchMod: e.target.value})}
+                                                        placeholder="0"
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-gray-700 mb-1">Product Pages %</label>
+                                                    <input
+                                                        type="text"
+                                                        value={singleKeywordTemplate.productPagesMod}
+                                                        onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, productPagesMod: e.target.value})}
+                                                        placeholder="0"
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </details>
+
+                                        <div className="flex gap-3 pt-3">
+                                            <button
+                                                onClick={createBulkCampaigns}
+                                                disabled={!singleKeywordTemplate.campaignName || !singleKeywordTemplate.keywords || !singleKeywordTemplate.campaignName.includes('{keyword}')}
+                                                className={`flex-1 px-4 py-2 rounded-lg font-medium ${
+                                                    singleKeywordTemplate.campaignName && singleKeywordTemplate.keywords && singleKeywordTemplate.campaignName.includes('{keyword}')
+                                                        ? 'bg-green-600 text-white hover:bg-green-700'
+                                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                }`}
+                                            >
+                                                Create {singleKeywordTemplate.keywords.split('\n').filter(k => k.trim()).length} Campaign(s)
+                                            </button>
+                                            <button
+                                                onClick={onClose}
+                                                className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
+                                            >
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {data.length > 0 && !singleKeywordMode && (
                                     <div className="bg-orange-50 p-3 rounded-lg text-xs text-orange-900 mb-3 border border-orange-200">
                                         ⚠️ <strong>Duplicate Checker Active:</strong> Keywords and SKUs that already exist in your campaigns will be highlighted in orange with a warning icon. Hover over the ⚠️ to see which campaign/ad group contains the duplicate.
                                     </div>
                                 )}
 
                                 {/* NEW FEATURE: Load Existing Campaign Section */}
-                                {data.length > 0 && getAllExistingCampaigns().length > 0 && (
+                                {data.length > 0 && getAllExistingCampaigns().length > 0 && !singleKeywordMode && (
                                     <div className="mb-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
                                         <div className="flex items-center justify-between mb-2">
                                             <h4 className="text-sm font-semibold text-purple-900">📋 Duplicate Existing Campaign</h4>
@@ -6323,7 +6784,7 @@
                                 )}
 
                                 {/* Created Campaigns Section */}
-                                {createdCampaigns.length > 0 && (
+                                {createdCampaigns.length > 0 && !singleKeywordMode && (
                                     <div className="mb-4">
                                         <div className="flex items-center justify-between mb-2">
                                             <h4 className="text-sm font-semibold text-green-800">✅ Newly Created Campaigns ({createdCampaigns.length})</h4>
@@ -6395,24 +6856,24 @@
                                 )}
 
                                 {/* Draft Campaigns Section */}
-                                {bulkCampaigns.length > 0 && (
+                                {bulkCampaigns.length > 0 && !singleKeywordMode && (
                                     <h4 className="text-sm font-semibold text-gray-700 mb-2">📝 Draft Campaigns ({bulkCampaigns.length})</h4>
                                 )}
 
-                                {bulkCampaigns.length === 0 && createdCampaigns.length === 0 && (
+                                {bulkCampaigns.length === 0 && createdCampaigns.length === 0 && !singleKeywordMode && (
                                     <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
                                         <p className="text-sm">No campaigns yet. Click "➕ Add Row" below to start building campaigns.</p>
                                     </div>
                                 )}
 
-                                {bulkCampaigns.length === 0 && createdCampaigns.length > 0 && (
+                                {bulkCampaigns.length === 0 && createdCampaigns.length > 0 && !singleKeywordMode && (
                                     <div className="text-center py-6 text-green-700 bg-green-50 rounded-lg border border-green-200">
                                         <p className="text-sm font-medium">✓ No draft campaigns - ready to create more!</p>
                                         <p className="text-xs mt-1">Click "➕ Add Row" below to build new campaigns, or duplicate your newly created ones above.</p>
                                     </div>
                                 )}
 
-                                {bulkCampaigns.length > 0 && (
+                                {bulkCampaigns.length > 0 && !singleKeywordMode && (
                                 <div className="overflow-x-auto max-h-[60vh] border rounded-lg">
                                     <table className="w-full text-xs">
                                         <thead className="bg-gray-100 sticky top-0">
@@ -6693,14 +7154,17 @@
                                 </div>
                                 )}
 
-                                <button
-                                    onClick={addEmptyBulkCampaign}
-                                    className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
-                                >
-                                    ➕ Add Row
-                                </button>
+                                {!singleKeywordMode && (
+                                    <button
+                                        onClick={addEmptyBulkCampaign}
+                                        className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
+                                    >
+                                        ➕ Add Row
+                                    </button>
+                                )}
 
-                                <div className="flex gap-3 mt-4">
+                                {!singleKeywordMode && (
+                                    <div className="flex gap-3 mt-4">
                                     {bulkCampaigns.length > 0 ? (
                                         <>
                                             <button
@@ -6725,6 +7189,7 @@
                                         </button>
                                     )}
                                 </div>
+                                )}
                             </div>
                         );
                     }
