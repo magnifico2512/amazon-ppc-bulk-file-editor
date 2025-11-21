@@ -1832,7 +1832,41 @@
                 return keyword.trim().toLowerCase().replace(/\+/g, ' ').replace(/\s+/g, ' ');
             };
 
-            // Check if an item is in the reference list
+            // PERFORMANCE OPTIMIZATION: Pre-compute reference lists as Sets for O(1) lookup
+            // These are memoized and only recomputed when the reference data changes
+            const referenceKeywordSet = React.useMemo(() => {
+                if (useTableMode && keywordTableData.length > 0) {
+                    return new Set(
+                        keywordTableData
+                            .map(r => normalizeKeyword(r['Keyword'] || r[tableColumns[0]] || ''))
+                            .filter(k => k)
+                    );
+                }
+                if (referenceKeywords) {
+                    return new Set(
+                        referenceKeywords.split('\n')
+                            .map(k => {
+                                const parts = k.split('\t');
+                                return normalizeKeyword(parts[0]);
+                            })
+                            .filter(k => k)
+                    );
+                }
+                return new Set();
+            }, [useTableMode, keywordTableData, referenceKeywords, tableColumns]);
+
+            const referenceProductSet = React.useMemo(() => {
+                if (referenceProducts) {
+                    return new Set(
+                        referenceProducts.split('\n')
+                            .map(p => p.trim().toUpperCase())
+                            .filter(p => p)
+                    );
+                }
+                return new Set();
+            }, [referenceProducts]);
+
+            // OPTIMIZED: Check if an item is in the reference list using pre-computed Sets
             const isInReferenceList = (row) => {
                 // Filter by portfolio if one is selected
                 if (referencePortfolio && getPortfolioName(row) !== referencePortfolio) {
@@ -1840,37 +1874,26 @@
                 }
                 
                 if (row.Entity === 'Keyword') {
-                    // Check table mode data
-                    if (useTableMode && keywordTableData.length > 0) {
-                        const refList = keywordTableData
-                            .map(r => normalizeKeyword(r['Keyword'] || r[tableColumns[0]] || ''))
-                            .filter(k => k);
-                        const keyword = normalizeKeyword(row['Keyword Text'] || '');
-                        return refList.includes(keyword);
-                    }
-                    // Check text mode data
-                    if (referenceKeywords) {
-                        const refList = referenceKeywords.split('\n')
-                            .map(k => {
-                                // Handle tab-separated data - take first column only
-                                const parts = k.split('\t');
-                                return normalizeKeyword(parts[0]);
-                            })
-                            .filter(k => k);
-                        const keyword = normalizeKeyword(row['Keyword Text'] || '');
-                        return refList.includes(keyword);
-                    }
+                    const keyword = normalizeKeyword(row['Keyword Text'] || '');
+                    return referenceKeywordSet.has(keyword);
                 }
                 
                 if ((row.Entity === 'Product Ad' || row.Entity === 'Product Targeting') && referenceProducts) {
-                    const refList = referenceProducts.split('\n')
-                        .map(p => p.trim().toUpperCase())
-                        .filter(p => p);
                     const sku = (row.SKU || '').toUpperCase();
                     const asin = (row['ASIN (Informational only)'] || '').toUpperCase();
                     const targeting = (row['Product Targeting Expression'] || '').toUpperCase();
-                    return refList.includes(sku) || refList.includes(asin) || 
-                           refList.some(ref => targeting.includes(ref));
+                    
+                    // Check if SKU or ASIN is in the set
+                    if (referenceProductSet.has(sku) || referenceProductSet.has(asin)) {
+                        return true;
+                    }
+                    
+                    // Check if any reference product is in the targeting expression
+                    for (const ref of referenceProductSet) {
+                        if (targeting.includes(ref)) {
+                            return true;
+                        }
+                    }
                 }
                 
                 return false;
@@ -1887,6 +1910,29 @@
                 });
                 return Array.from(portfolios).sort();
             };
+
+            // PERFORMANCE OPTIMIZATION: Create lookup maps for O(1) campaign and ad group access
+            // These are memoized and only rebuilt when data changes
+            const campaignMap = React.useMemo(() => {
+                const map = new Map();
+                data.forEach(row => {
+                    if (row.Entity === 'Campaign' && row['Campaign ID']) {
+                        map.set(row['Campaign ID'], row);
+                    }
+                });
+                return map;
+            }, [data]);
+
+            const adGroupMap = React.useMemo(() => {
+                const map = new Map();
+                data.forEach(row => {
+                    if (row.Entity === 'Ad Group' && row['Campaign ID'] && row['Ad Group ID']) {
+                        const key = `${row['Campaign ID']}_${row['Ad Group ID']}`;
+                        map.set(key, row);
+                    }
+                });
+                return map;
+            }, [data]);
 
             // Check keyword status (exists in campaigns or not)
             const getKeywordStatus = () => {
@@ -1918,19 +1964,13 @@
                             const keywordEnabled = (e.State || '').toLowerCase() === 'enabled';
                             if (!keywordEnabled) return false;
                             
-                            // Check campaign state
-                            const campaignRow = data.find(r => 
-                                r.Entity === 'Campaign' && 
-                                r['Campaign ID'] === e['Campaign ID']
-                            );
+                            // Check campaign state using map lookup (O(1) instead of O(n))
+                            const campaignRow = campaignMap.get(e['Campaign ID']);
                             const campaignEnabled = !campaignRow || (campaignRow.State || '').toLowerCase() === 'enabled';
                             
-                            // Check ad group state
-                            const adGroupRow = data.find(r => 
-                                r.Entity === 'Ad Group' && 
-                                r['Campaign ID'] === e['Campaign ID'] && 
-                                r['Ad Group ID'] === e['Ad Group ID']
-                            );
+                            // Check ad group state using map lookup (O(1) instead of O(n))
+                            const adGroupKey = `${e['Campaign ID']}_${e['Ad Group ID']}`;
+                            const adGroupRow = adGroupMap.get(adGroupKey);
                             const adGroupEnabled = !adGroupRow || (adGroupRow.State || '').toLowerCase() === 'enabled';
                             
                             return campaignEnabled && adGroupEnabled;
@@ -1942,19 +1982,13 @@
                         const pausedKeywords = existing.filter(e => {
                             const keywordPaused = (e.State || '').toLowerCase() === 'paused';
                             
-                            // Check campaign state
-                            const campaignRow = data.find(r => 
-                                r.Entity === 'Campaign' && 
-                                r['Campaign ID'] === e['Campaign ID']
-                            );
+                            // Check campaign state using map lookup (O(1) instead of O(n))
+                            const campaignRow = campaignMap.get(e['Campaign ID']);
                             const campaignPaused = campaignRow && (campaignRow.State || '').toLowerCase() === 'paused';
                             
-                            // Check ad group state
-                            const adGroupRow = data.find(r => 
-                                r.Entity === 'Ad Group' && 
-                                r['Campaign ID'] === e['Campaign ID'] && 
-                                r['Ad Group ID'] === e['Ad Group ID']
-                            );
+                            // Check ad group state using map lookup (O(1) instead of O(n))
+                            const adGroupKey = `${e['Campaign ID']}_${e['Ad Group ID']}`;
+                            const adGroupRow = adGroupMap.get(adGroupKey);
                             const adGroupPaused = adGroupRow && (adGroupRow.State || '').toLowerCase() === 'paused';
                             
                             // Keyword is effectively paused if any component is paused
@@ -1974,19 +2008,13 @@
                             isPaused: pausedKeywords.length > 0 && enabledKeywords.length === 0,
                             hasEnabledAndPaused: enabledKeywords.length > 0 && pausedKeywords.length > 0,
                             locations: existing.map(e => {
-                                // Get campaign state
-                                const campaignRow = data.find(r => 
-                                    r.Entity === 'Campaign' && 
-                                    r['Campaign ID'] === e['Campaign ID']
-                                );
+                                // Get campaign state using map lookup (O(1) instead of O(n))
+                                const campaignRow = campaignMap.get(e['Campaign ID']);
                                 const campaignState = campaignRow ? (campaignRow.State || '').toLowerCase() : 'unknown';
                                 
-                                // Get ad group state
-                                const adGroupRow = data.find(r => 
-                                    r.Entity === 'Ad Group' && 
-                                    r['Campaign ID'] === e['Campaign ID'] && 
-                                    r['Ad Group ID'] === e['Ad Group ID']
-                                );
+                                // Get ad group state using map lookup (O(1) instead of O(n))
+                                const adGroupKey = `${e['Campaign ID']}_${e['Ad Group ID']}`;
+                                const adGroupRow = adGroupMap.get(adGroupKey);
                                 const adGroupState = adGroupRow ? (adGroupRow.State || '').toLowerCase() : 'unknown';
                                 
                                 const keywordState = (e.State || '').toLowerCase();
@@ -2070,10 +2098,11 @@
                             const keywordEnabled = (e.State || '').toLowerCase() === 'enabled';
                             if (!keywordEnabled) return false;
                             
-                            const campaignRow = data.find(r => r.Entity === 'Campaign' && r['Campaign ID'] === e['Campaign ID']);
+                            const campaignRow = campaignMap.get(e['Campaign ID']);
                             const campaignEnabled = !campaignRow || (campaignRow.State || '').toLowerCase() === 'enabled';
                             
-                            const adGroupRow = data.find(r => r.Entity === 'Ad Group' && r['Campaign ID'] === e['Campaign ID'] && r['Ad Group ID'] === e['Ad Group ID']);
+                            const adGroupKey = `${e['Campaign ID']}_${e['Ad Group ID']}`;
+                            const adGroupRow = adGroupMap.get(adGroupKey);
                             const adGroupEnabled = !adGroupRow || (adGroupRow.State || '').toLowerCase() === 'enabled';
                             
                             return campaignEnabled && adGroupEnabled;
@@ -2084,9 +2113,10 @@
                         
                         const pausedKeywords = existing.filter(e => {
                             const keywordPaused = (e.State || '').toLowerCase() === 'paused';
-                            const campaignRow = data.find(r => r.Entity === 'Campaign' && r['Campaign ID'] === e['Campaign ID']);
+                            const campaignRow = campaignMap.get(e['Campaign ID']);
                             const campaignPaused = campaignRow && (campaignRow.State || '').toLowerCase() === 'paused';
-                            const adGroupRow = data.find(r => r.Entity === 'Ad Group' && r['Campaign ID'] === e['Campaign ID'] && r['Ad Group ID'] === e['Ad Group ID']);
+                            const adGroupKey = `${e['Campaign ID']}_${e['Ad Group ID']}`;
+                            const adGroupRow = adGroupMap.get(adGroupKey);
                             const adGroupPaused = adGroupRow && (adGroupRow.State || '').toLowerCase() === 'paused';
                             
                             return keywordPaused || campaignPaused || adGroupPaused;
@@ -2105,9 +2135,10 @@
                             isPaused: pausedKeywords.length > 0 && enabledKeywords.length === 0,
                             hasEnabledAndPaused: enabledKeywords.length > 0 && pausedKeywords.length > 0,
                             locations: existing.map(e => {
-                                const campaignRow = data.find(r => r.Entity === 'Campaign' && r['Campaign ID'] === e['Campaign ID']);
+                                const campaignRow = campaignMap.get(e['Campaign ID']);
                                 const campaignState = campaignRow ? (campaignRow.State || '').toLowerCase() : 'unknown';
-                                const adGroupRow = data.find(r => r.Entity === 'Ad Group' && r['Campaign ID'] === e['Campaign ID'] && r['Ad Group ID'] === e['Ad Group ID']);
+                                const adGroupKey = `${e['Campaign ID']}_${e['Ad Group ID']}`;
+                                const adGroupRow = adGroupMap.get(adGroupKey);
                                 const adGroupState = adGroupRow ? (adGroupRow.State || '').toLowerCase() : 'unknown';
                                 const keywordState = (e.State || '').toLowerCase();
                                 
@@ -2156,10 +2187,11 @@
                             const keywordEnabled = (e.State || '').toLowerCase() === 'enabled';
                             if (!keywordEnabled) return false;
                             
-                            const campaignRow = data.find(r => r.Entity === 'Campaign' && r['Campaign ID'] === e['Campaign ID']);
+                            const campaignRow = campaignMap.get(e['Campaign ID']);
                             const campaignEnabled = !campaignRow || (campaignRow.State || '').toLowerCase() === 'enabled';
                             
-                            const adGroupRow = data.find(r => r.Entity === 'Ad Group' && r['Campaign ID'] === e['Campaign ID'] && r['Ad Group ID'] === e['Ad Group ID']);
+                            const adGroupKey = `${e['Campaign ID']}_${e['Ad Group ID']}`;
+                            const adGroupRow = adGroupMap.get(adGroupKey);
                             const adGroupEnabled = !adGroupRow || (adGroupRow.State || '').toLowerCase() === 'enabled';
                             
                             return campaignEnabled && adGroupEnabled;
@@ -2170,9 +2202,10 @@
                         
                         const pausedKeywords = existing.filter(e => {
                             const keywordPaused = (e.State || '').toLowerCase() === 'paused';
-                            const campaignRow = data.find(r => r.Entity === 'Campaign' && r['Campaign ID'] === e['Campaign ID']);
+                            const campaignRow = campaignMap.get(e['Campaign ID']);
                             const campaignPaused = campaignRow && (campaignRow.State || '').toLowerCase() === 'paused';
-                            const adGroupRow = data.find(r => r.Entity === 'Ad Group' && r['Campaign ID'] === e['Campaign ID'] && r['Ad Group ID'] === e['Ad Group ID']);
+                            const adGroupKey = `${e['Campaign ID']}_${e['Ad Group ID']}`;
+                            const adGroupRow = adGroupMap.get(adGroupKey);
                             const adGroupPaused = adGroupRow && (adGroupRow.State || '').toLowerCase() === 'paused';
                             
                             return keywordPaused || campaignPaused || adGroupPaused;
@@ -2190,9 +2223,10 @@
                             isPaused: pausedKeywords.length > 0 && enabledKeywords.length === 0,
                             hasEnabledAndPaused: enabledKeywords.length > 0 && pausedKeywords.length > 0,
                             locations: existing.map(e => {
-                                const campaignRow = data.find(r => r.Entity === 'Campaign' && r['Campaign ID'] === e['Campaign ID']);
+                                const campaignRow = campaignMap.get(e['Campaign ID']);
                                 const campaignState = campaignRow ? (campaignRow.State || '').toLowerCase() : 'unknown';
-                                const adGroupRow = data.find(r => r.Entity === 'Ad Group' && r['Campaign ID'] === e['Campaign ID'] && r['Ad Group ID'] === e['Ad Group ID']);
+                                const adGroupKey = `${e['Campaign ID']}_${e['Ad Group ID']}`;
+                                const adGroupRow = adGroupMap.get(adGroupKey);
                                 const adGroupState = adGroupRow ? (adGroupRow.State || '').toLowerCase() : 'unknown';
                                 const keywordState = (e.State || '').toLowerCase();
                                 
