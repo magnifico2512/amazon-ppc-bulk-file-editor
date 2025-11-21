@@ -1362,12 +1362,21 @@
 
             const selectAll = () => {
                 const filtered = getFilteredData();
-                if (selectedItems.size === filtered.length) {
-                    setSelectedItems(new Set());
+                const filteredIndices = filtered.map(item => data.indexOf(item));
+                
+                // Check if all filtered items are currently selected
+                const allSelected = filteredIndices.every(index => selectedItems.has(index));
+                
+                if (allSelected) {
+                    // Deselect all filtered items
+                    const newSelected = new Set(selectedItems);
+                    filteredIndices.forEach(index => newSelected.delete(index));
+                    setSelectedItems(newSelected);
                 } else {
-                    const indices = new Set();
-                    filtered.forEach((_, i) => indices.add(data.indexOf(filtered[i])));
-                    setSelectedItems(indices);
+                    // Select all filtered items
+                    const newSelected = new Set(selectedItems);
+                    filteredIndices.forEach(index => newSelected.add(index));
+                    setSelectedItems(newSelected);
                 }
             };
 
@@ -2383,7 +2392,7 @@
                                                         >
                                                             <span>☑</span>
                                                             <span>
-                                                                {selectedItems.size === changes.length && changes.length > 0 ? 
+                                                                {changes.length > 0 && changes.every(item => selectedItems.has(data.indexOf(item))) ? 
                                                                     'Deselect All' : 
                                                                     `Select All (${changes.length})`
                                                                 }
@@ -4623,7 +4632,7 @@
                                 <th className="px-3 py-2 text-left" style={{ width: '40px' }}>
                                     <input
                                         type="checkbox"
-                                        checked={selectedItems.size === data.length && data.length > 0}
+                                        checked={data.length > 0 && data.every(item => selectedItems.has(allData.indexOf(item)))}
                                         onChange={selectAll}
                                         className="rounded"
                                         title={`Select all ${data.length} visible items`}
@@ -4689,6 +4698,7 @@
                                 </tr>
                             ) : (
                             data.map((row, index) => {
+                                const actualIndex = allData.indexOf(row); // Get the index in the original full data array
                                 const inReferenceList = isInReferenceList && isInReferenceList(row);
                                 const rowClasses = inReferenceList && showReferencePanel
                                     ? 'bg-orange-100 border-l-4 border-orange-400'
@@ -4705,7 +4715,7 @@
                                 return (
                                     <React.Fragment key={index}>
                                         <tr 
-                                            className={`hover:bg-gray-50 ${selectedItems.has(index) ? 'bg-blue-50' : rowClasses}`}
+                                            className={`hover:bg-gray-50 ${selectedItems.has(actualIndex) ? 'bg-blue-50' : rowClasses}`}
                                             title={inReferenceList && showReferencePanel ? '🎯 In your target list' : ''}
                                         >
                                             <td className="px-3 py-2">
@@ -4721,8 +4731,8 @@
                                                     )}
                                                     <input
                                                         type="checkbox"
-                                                        checked={selectedItems.has(index)}
-                                                        onChange={() => toggleSelection(index)}
+                                                        checked={selectedItems.has(actualIndex)}
+                                                        onChange={() => toggleSelection(actualIndex)}
                                                         className="rounded"
                                                     />
                                                 </div>
