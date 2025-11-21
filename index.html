@@ -3990,6 +3990,7 @@
                             data={data}
                             onClose={() => setShowModal(false)}
                             onAdd={addNewItems}
+                            setData={setData}
                         />
                     )}
 
@@ -5295,7 +5296,7 @@
             );
         }
 
-        function AddModal({ type, data, onClose, onAdd }) {
+        function AddModal({ type, data, onClose, onAdd, setData }) {
             const [step, setStep] = useState(1);
             const [formData, setFormData] = useState({
                 keywords: '',
