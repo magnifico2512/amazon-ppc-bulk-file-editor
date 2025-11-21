@@ -469,6 +469,193 @@
             );
         }
 
+        function FindReplaceModal({ settings, setSettings, onExecute, onClose, data }) {
+            const [previewResults, setPreviewResults] = useState([]);
+            
+            const availableColumns = [
+                'Campaign Name',
+                'Ad Group Name',
+                'Keyword Text',
+                'SKU',
+                'Product Targeting Expression'
+            ];
+            
+            const toggleColumn = (column) => {
+                const newColumns = settings.selectedColumns.includes(column)
+                    ? settings.selectedColumns.filter(c => c !== column)
+                    : [...settings.selectedColumns, column];
+                setSettings({ ...settings, selectedColumns: newColumns });
+            };
+            
+            const generatePreview = () => {
+                if (!settings.findText) return;
+                
+                const { findText, replaceText, matchCase, selectedColumns } = settings;
+                const results = [];
+                
+                data.forEach((row, index) => {
+                    selectedColumns.forEach(column => {
+                        const currentValue = row[column];
+                        if (currentValue && typeof currentValue === 'string') {
+                            let newValue;
+                            if (matchCase) {
+                                newValue = currentValue.split(findText).join(replaceText);
+                            } else {
+                                const regex = new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                                newValue = currentValue.replace(regex, replaceText);
+                            }
+                            
+                            if (newValue !== currentValue) {
+                                results.push({
+                                    index,
+                                    column,
+                                    entity: row.Entity,
+                                    before: currentValue,
+                                    after: newValue
+                                });
+                            }
+                        }
+                    });
+                });
+                
+                setPreviewResults(results);
+            };
+            
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <h3 className="text-xl font-bold text-gray-900 mb-4">🔍 Find & Replace</h3>
+                        
+                        <div className="space-y-4">
+                            {/* Find Text Input */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Find Text *
+                                </label>
+                                <input
+                                    type="text"
+                                    value={settings.findText}
+                                    onChange={(e) => setSettings({ ...settings, findText: e.target.value })}
+                                    placeholder="Enter text to find..."
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                    autoFocus
+                                />
+                            </div>
+                            
+                            {/* Replace Text Input */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Replace With
+                                </label>
+                                <input
+                                    type="text"
+                                    value={settings.replaceText}
+                                    onChange={(e) => setSettings({ ...settings, replaceText: e.target.value })}
+                                    placeholder="Enter replacement text..."
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                />
+                            </div>
+                            
+                            {/* Options */}
+                            <div>
+                                <label className="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        checked={settings.matchCase}
+                                        onChange={(e) => setSettings({ ...settings, matchCase: e.target.checked })}
+                                        className="rounded"
+                                    />
+                                    <span>Match case</span>
+                                </label>
+                            </div>
+                            
+                            {/* Column Selection */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Search in Columns *
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {availableColumns.map(column => (
+                                        <label key={column} className="flex items-center gap-2 text-sm p-2 border rounded hover:bg-gray-50 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={settings.selectedColumns.includes(column)}
+                                                onChange={() => toggleColumn(column)}
+                                                className="rounded"
+                                            />
+                                            <span>{column}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            
+                            {/* Preview Button */}
+                            <div>
+                                <button
+                                    onClick={generatePreview}
+                                    disabled={!settings.findText || settings.selectedColumns.length === 0}
+                                    className="w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                >
+                                    🔎 Preview Changes
+                                </button>
+                            </div>
+                            
+                            {/* Preview Results */}
+                            {previewResults.length > 0 && (
+                                <div className="border rounded-lg p-4 bg-gray-50 max-h-64 overflow-y-auto">
+                                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                                        Preview: {previewResults.length} change(s) will be made
+                                    </h4>
+                                    <div className="space-y-2 text-xs">
+                                        {previewResults.slice(0, 10).map((result, idx) => (
+                                            <div key={idx} className="bg-white p-2 rounded border">
+                                                <div className="text-gray-600 mb-1">
+                                                    {result.entity} • {result.column}
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-red-600 line-through">{result.before}</span>
+                                                    <span>→</span>
+                                                    <span className="text-green-600 font-medium">{result.after}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {previewResults.length > 10 && (
+                                            <div className="text-center text-gray-500 text-xs">
+                                                ... and {previewResults.length - 10} more
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {previewResults.length === 0 && settings.findText && (
+                                <div className="text-sm text-gray-600 bg-yellow-50 border border-yellow-200 rounded p-3">
+                                    ℹ️ No matches found. Try adjusting your search text or selected columns.
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Action Buttons */}
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={onExecute}
+                                disabled={!settings.findText || settings.selectedColumns.length === 0 || previewResults.length === 0}
+                                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                            >
+                                Replace All ({previewResults.length})
+                            </button>
+                            <button
+                                onClick={onClose}
+                                className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 font-medium"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         function App() {
             const [data, setData] = useState([]);
             const [originalRowMap, setOriginalRowMap] = useState(new Map());
@@ -483,6 +670,13 @@
             const [activeFilterColumn, setActiveFilterColumn] = useState(null);
             const [filterPosition, setFilterPosition] = useState({ top: 0, left: 0 });
             const [showReferencePanel, setShowReferencePanel] = useState(false);
+            const [showFindReplaceModal, setShowFindReplaceModal] = useState(false);
+            const [findReplaceSettings, setFindReplaceSettings] = useState({
+                findText: '',
+                replaceText: '',
+                matchCase: false,
+                selectedColumns: ['Campaign Name', 'Ad Group Name']
+            });
             const [referenceKeywords, setReferenceKeywords] = useState('');
             const [expandedKeywordRows, setExpandedKeywordRows] = useState(new Set());
             const [referenceProducts, setReferenceProducts] = useState('');
@@ -1380,6 +1574,50 @@
                 }
             };
 
+            const executeFindReplace = () => {
+                const { findText, replaceText, matchCase, selectedColumns } = findReplaceSettings;
+                
+                if (!findText) {
+                    alert('Please enter text to find');
+                    return;
+                }
+                
+                let replacementCount = 0;
+                const newData = data.map(row => {
+                    const newRow = { ...row };
+                    let rowModified = false;
+                    
+                    selectedColumns.forEach(column => {
+                        const currentValue = row[column];
+                        if (currentValue && typeof currentValue === 'string') {
+                            let newValue;
+                            if (matchCase) {
+                                newValue = currentValue.split(findText).join(replaceText);
+                            } else {
+                                const regex = new RegExp(findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                                newValue = currentValue.replace(regex, replaceText);
+                            }
+                            
+                            if (newValue !== currentValue) {
+                                newRow[column] = newValue;
+                                rowModified = true;
+                                replacementCount++;
+                            }
+                        }
+                    });
+                    
+                    return rowModified ? newRow : row;
+                });
+                
+                if (replacementCount > 0) {
+                    setData(newData);
+                    alert(`Replaced ${replacementCount} occurrence(s) across ${selectedColumns.join(', ')}`);
+                    setShowFindReplaceModal(false);
+                } else {
+                    alert('No matches found');
+                }
+            };
+
             const bulkUpdateState = (state) => {
                 const newData = [...data];
                 selectedItems.forEach(index => {
@@ -2130,6 +2368,13 @@
                                                 }`}
                                             >
                                                 🎯 Target Checker
+                                            </button>
+                                            <button
+                                                onClick={() => setShowFindReplaceModal(true)}
+                                                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm font-medium"
+                                                title="Find and replace text across multiple rows"
+                                            >
+                                                🔍 Find & Replace
                                             </button>
                                             
                                             {/* Auto-save indicator */}
@@ -4037,6 +4282,17 @@
                                     setColumnSort({ column, direction });
                                 }
                             }}
+                        />
+                    )}
+
+                    {/* Find & Replace Modal */}
+                    {showFindReplaceModal && (
+                        <FindReplaceModal
+                            settings={findReplaceSettings}
+                            setSettings={setFindReplaceSettings}
+                            onExecute={executeFindReplace}
+                            onClose={() => setShowFindReplaceModal(false)}
+                            data={data}
                         />
                     )}
                 </div>
