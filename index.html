@@ -1386,6 +1386,35 @@
                 setSelectedItems(new Set());
             };
 
+            const undoSelected = () => {
+                if (!confirm(`Undo changes for ${selectedItems.size} selected items?`)) return;
+                
+                const newData = [...data];
+                const selectedArray = Array.from(selectedItems);
+                
+                // Sort in reverse order to handle deletions correctly
+                selectedArray.sort((a, b) => b - a);
+                
+                selectedArray.forEach(index => {
+                    const row = data[index];
+                    const rowId = getRowId(row);
+                    const original = originalRowMap.get(rowId);
+                    
+                    if (!original) {
+                        // This is a new item, mark it for removal
+                        newData[index] = null;
+                    } else {
+                        // This is a modified item, revert to original
+                        newData[index] = { ...original };
+                    }
+                });
+                
+                // Filter out null entries (removed new items)
+                const filteredData = newData.filter(item => item !== null);
+                setData(filteredData);
+                setSelectedItems(new Set());
+            };
+
             const addNewItems = (newItems) => {
                 setData([...data, ...newItems]);
             };
@@ -2346,14 +2375,29 @@
                                                 </div>
 
                                                 {activeTab === 'changes' && changes.length > 0 && (
-                                                    <button
-                                                        onClick={undoAllChanges}
-                                                        className="px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-xs font-medium flex items-center gap-1"
-                                                        title="Revert all changes and remove all new items"
-                                                    >
-                                                        <span>↶</span>
-                                                        <span>Undo All ({changes.length})</span>
-                                                    </button>
+                                                    <>
+                                                        <button
+                                                            onClick={selectAll}
+                                                            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium flex items-center gap-1"
+                                                            title={`Select all ${changes.length} changed items`}
+                                                        >
+                                                            <span>☑</span>
+                                                            <span>
+                                                                {selectedItems.size === changes.length && changes.length > 0 ? 
+                                                                    'Deselect All' : 
+                                                                    `Select All (${changes.length})`
+                                                                }
+                                                            </span>
+                                                        </button>
+                                                        <button
+                                                            onClick={undoAllChanges}
+                                                            className="px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-xs font-medium flex items-center gap-1"
+                                                            title="Revert all changes and remove all new items"
+                                                        >
+                                                            <span>↶</span>
+                                                            <span>Undo All ({changes.length})</span>
+                                                        </button>
+                                                    </>
                                                 )}
                                                 
                                                 {/* Status Filter */}
@@ -2392,6 +2436,13 @@
                                                             className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
                                                         >
                                                             📦 Archive
+                                                        </button>
+                                                        <button
+                                                            onClick={undoSelected}
+                                                            className="px-2 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700"
+                                                            title="Revert selected items to original state or remove if new"
+                                                        >
+                                                            ↶ Undo
                                                         </button>
                                                         <button
                                                             onClick={deleteSelected}
@@ -4572,9 +4623,10 @@
                                 <th className="px-3 py-2 text-left" style={{ width: '40px' }}>
                                     <input
                                         type="checkbox"
-                                        checked={selectedItems.size === data.length && data.length > 0}
+                                        checked={selectedItems.size === getFilteredData().length && getFilteredData().length > 0}
                                         onChange={selectAll}
                                         className="rounded"
+                                        title={`Select all ${getFilteredData().length} visible items`}
                                     />
                                 </th>
                                 {columns.map(col => (
@@ -6061,6 +6113,14 @@
 
             // Functions to manage created campaigns
             const removeCreatedCampaign = (index) => {
+                const campaign = createdCampaigns[index];
+                const campaignId = campaign.campaignName.replace(/[^a-zA-Z0-9]/g, '_');
+                
+                // Remove all rows related to this campaign from the main data array
+                const newData = data.filter(row => row['Campaign ID'] !== campaignId);
+                setData(newData);
+                
+                // Remove from createdCampaigns list
                 const newCreated = [...createdCampaigns];
                 newCreated.splice(index, 1);
                 setCreatedCampaigns(newCreated);
@@ -6078,6 +6138,13 @@
 
             const editCreatedCampaign = (index) => {
                 const campaign = createdCampaigns[index];
+                const campaignId = campaign.campaignName.replace(/[^a-zA-Z0-9]/g, '_');
+                
+                // Remove all rows related to this campaign from the main data array
+                const newData = data.filter(row => row['Campaign ID'] !== campaignId);
+                setData(newData);
+                
+                // Remove from createdCampaigns and add back to bulkCampaigns for editing
                 const newCreated = [...createdCampaigns];
                 newCreated.splice(index, 1);
                 setCreatedCampaigns(newCreated);
@@ -6516,9 +6583,9 @@
                                                     onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, matchType: e.target.value})}
                                                     className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
                                                 >
-                                                    <option value="Broad">Broad</option>
-                                                    <option value="Phrase">Phrase</option>
                                                     <option value="Exact">Exact</option>
+                                                    <option value="Phrase">Phrase</option>
+                                                    <option value="Broad">Broad</option>
                                                 </select>
                                             </div>
                                             <div>
@@ -6788,7 +6855,10 @@
                                     <div className="mb-4">
                                         <div className="flex items-center justify-between mb-2">
                                             <h4 className="text-sm font-semibold text-green-800">✅ Newly Created Campaigns ({createdCampaigns.length})</h4>
-                                            <span className="text-xs text-gray-600">Campaigns ready to be uploaded - duplicate or edit to create more</span>
+                                            <span className="text-xs text-gray-600">Ready to export - you can edit, duplicate, or delete before closing</span>
+                                        </div>
+                                        <div className="bg-blue-50 p-2 rounded text-xs text-blue-900 mb-2 border border-blue-200">
+                                            💡 <strong>Quick Actions:</strong> Edit (✏️) to modify settings, Duplicate (📋) to create similar campaigns, or Delete (🗑️) to remove completely.
                                         </div>
                                         <div className="overflow-x-auto max-h-[35vh] border rounded-lg bg-green-50">
                                             <table className="w-full text-xs">
@@ -6827,21 +6897,21 @@
                                                                     <button
                                                                         onClick={() => editCreatedCampaign(index)}
                                                                         className="p-1 text-blue-600 hover:bg-blue-100 rounded"
-                                                                        title="Edit (move back to draft)"
+                                                                        title="Edit - move back to draft to modify"
                                                                     >
                                                                         ✏️
                                                                     </button>
                                                                     <button
                                                                         onClick={() => duplicateCreatedCampaign(index)}
                                                                         className="p-1 text-green-600 hover:bg-green-100 rounded"
-                                                                        title="Duplicate"
+                                                                        title="Duplicate to create another similar campaign"
                                                                     >
                                                                         📋
                                                                     </button>
                                                                     <button
                                                                         onClick={() => removeCreatedCampaign(index)}
                                                                         className="p-1 text-red-600 hover:bg-red-100 rounded"
-                                                                        title="Remove"
+                                                                        title="Delete completely from changes"
                                                                     >
                                                                         🗑️
                                                                     </button>
