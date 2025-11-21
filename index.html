@@ -4623,10 +4623,10 @@
                                 <th className="px-3 py-2 text-left" style={{ width: '40px' }}>
                                     <input
                                         type="checkbox"
-                                        checked={selectedItems.size === getFilteredData().length && getFilteredData().length > 0}
+                                        checked={selectedItems.size === data.length && data.length > 0}
                                         onChange={selectAll}
                                         className="rounded"
-                                        title={`Select all ${getFilteredData().length} visible items`}
+                                        title={`Select all ${data.length} visible items`}
                                     />
                                 </th>
                                 {columns.map(col => (
