@@ -94,6 +94,13 @@
         .filter-icon.active {
             color: #3b82f6;
         }
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .dropdown-animate {
+            animation: slideDown 0.15s ease-out;
+        }
     </style>
 </head>
 <body>
@@ -101,6 +108,33 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
+
+        // Dropdown component for pill navigation
+        function Dropdown({ trigger, children, align = 'left' }) {
+            const [open, setOpen] = useState(false);
+            const ref = useRef(null);
+
+            useEffect(() => {
+                function handleClick(e) {
+                    if (ref.current && !ref.current.contains(e.target)) {
+                        setOpen(false);
+                    }
+                }
+                document.addEventListener('mousedown', handleClick);
+                return () => document.removeEventListener('mousedown', handleClick);
+            }, []);
+
+            return (
+                <div className="relative" ref={ref}>
+                    <div onClick={() => setOpen(!open)}>{trigger}</div>
+                    {open && (
+                        <div className={`absolute top-full mt-2 ${align === 'right' ? 'right-0' : 'left-0'} z-50 dropdown-animate`}>
+                            {children}
+                        </div>
+                    )}
+                </div>
+            );
+        }
 
         // ========================================
         // AMAZON BULKSHEET EXPORT CONFIGURATION
@@ -2367,120 +2401,168 @@
 
             return (
                 <div className="min-h-screen bg-gray-50">
-                    {/* Header */}
-                    <div className="bg-gradient-to-r from-slate-800 to-slate-900 shadow-lg sticky top-0 z-30">
+                    {/* Header - Pill Navigation Style */}
+                    <div className="bg-gradient-to-b from-cyan-50 to-white shadow-sm sticky top-0 z-30 border-b border-cyan-100">
                         <div className="max-w-[98%] mx-auto px-4 py-4">
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between mb-4">
                                 {/* Logo & Title */}
                                 <div className="flex items-center gap-3">
-                                    <div className="bg-gradient-to-br from-orange-400 to-orange-600 p-2 rounded-lg shadow-md">
-                                        <span className="text-2xl">📦</span>
+                                    <div className="w-11 h-11 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
+                                        <span className="text-xl">📦</span>
                                     </div>
                                     <div>
-                                        <h1 className="text-xl font-bold text-white">Amazon PPC Manager</h1>
-                                        <p className="text-xs text-slate-400">Bulk Campaign Editor</p>
+                                        <h1 className="text-lg font-bold text-gray-800">Amazon PPC Manager</h1>
+                                        <p className="text-xs text-gray-500">Bulk Campaign Editor</p>
                                     </div>
                                 </div>
                                 
                                 {/* Action Buttons */}
-                                <div className="flex items-center gap-2">
-                                    {/* Primary: Upload */}
-                                    <label className="cursor-pointer px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition flex items-center gap-2 text-sm font-medium shadow-md">
-                                        <span>📂</span>
-                                        <span>Upload CSV</span>
-                                        <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
-                                    </label>
+                                <div className="flex items-center gap-3">
+                                    {/* Import Dropdown */}
+                                    <Dropdown
+                                        trigger={
+                                            <button className="h-10 px-4 bg-white border border-gray-200 hover:border-cyan-300 hover:bg-cyan-50 text-gray-700 rounded-full text-sm font-medium flex items-center gap-2 transition shadow-sm">
+                                                <span>📂</span> Import
+                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            </button>
+                                        }
+                                    >
+                                        <div className="bg-white rounded-2xl shadow-xl border py-2 w-56">
+                                            <label className="w-full px-4 py-3 text-left text-gray-700 hover:bg-cyan-50 text-sm flex items-center gap-3 cursor-pointer">
+                                                <span className="text-lg">📄</span>
+                                                <div>
+                                                    <div className="font-medium">Upload CSV</div>
+                                                    <div className="text-xs text-gray-500">Import bulksheet data</div>
+                                                </div>
+                                                <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+                                            </label>
+                                            <label className="w-full px-4 py-3 text-left text-gray-700 hover:bg-cyan-50 text-sm flex items-center gap-3 cursor-pointer">
+                                                <span className="text-lg">📂</span>
+                                                <div>
+                                                    <div className="font-medium">Load Changes</div>
+                                                    <div className="text-xs text-gray-500">Resume saved work</div>
+                                                </div>
+                                                <input type="file" accept=".json" onChange={uploadChangesFile} className="hidden" />
+                                            </label>
+                                        </div>
+                                    </Dropdown>
                                     
                                     {data.length > 0 && (
                                         <>
-                                            {/* Download All */}
-                                            <button
-                                                onClick={downloadCSV}
-                                                className="px-3 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 transition text-sm font-medium"
-                                                title="Download complete dataset"
+                                            {/* Export Dropdown */}
+                                            <Dropdown
+                                                align="right"
+                                                trigger={
+                                                    <button className={`h-10 px-5 rounded-full text-sm font-medium flex items-center gap-2 transition shadow-md ${
+                                                        changes.length > 0 
+                                                            ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white' 
+                                                            : 'bg-gray-200 text-gray-500'
+                                                    }`}>
+                                                        <span>📥</span> Export
+                                                        {changes.length > 0 && (
+                                                            <span className="bg-white/25 px-2 py-0.5 rounded-full text-xs font-bold">{changes.length}</span>
+                                                        )}
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                        </svg>
+                                                    </button>
+                                                }
                                             >
-                                                💾 Download All
-                                            </button>
+                                                <div className="bg-white rounded-2xl shadow-xl border py-3 w-64">
+                                                    <button 
+                                                        onClick={downloadChanges}
+                                                        disabled={changes.length === 0}
+                                                        className={`w-full px-4 py-3 text-left flex items-center justify-between rounded-lg mx-1 w-[calc(100%-8px)] ${
+                                                            changes.length > 0 ? 'hover:bg-emerald-50' : 'opacity-50 cursor-not-allowed'
+                                                        }`}
+                                                    >
+                                                        <span className="flex items-center gap-3">
+                                                            <span className="text-lg">📊</span>
+                                                            <div>
+                                                                <div className="font-medium text-gray-700">Amazon Bulksheet</div>
+                                                                <div className="text-xs text-gray-500">Ready to upload</div>
+                                                            </div>
+                                                        </span>
+                                                        {changes.length > 0 && (
+                                                            <span className="text-emerald-600 text-xs bg-emerald-100 px-2 py-1 rounded-full font-bold">{changes.length}</span>
+                                                        )}
+                                                    </button>
+                                                    <button 
+                                                        onClick={downloadCSV}
+                                                        className="w-full px-4 py-2.5 text-left text-gray-700 hover:bg-gray-50 text-sm rounded-lg mx-1 w-[calc(100%-8px)] flex items-center gap-3"
+                                                    >
+                                                        <span className="text-lg">💾</span>
+                                                        <div>
+                                                            <div className="font-medium">Download All</div>
+                                                            <div className="text-xs text-gray-500">Complete dataset</div>
+                                                        </div>
+                                                    </button>
+                                                    <div className="border-t border-gray-100 my-2 mx-3"></div>
+                                                    <button 
+                                                        onClick={downloadChangesFile}
+                                                        disabled={!hasSavedChanges}
+                                                        className={`w-full px-4 py-2.5 text-left text-sm rounded-lg mx-1 w-[calc(100%-8px)] flex items-center gap-3 ${
+                                                            hasSavedChanges ? 'text-gray-700 hover:bg-purple-50' : 'text-gray-400 cursor-not-allowed'
+                                                        }`}
+                                                    >
+                                                        <span className="text-lg">💾</span>
+                                                        <div>
+                                                            <div className="font-medium">Save Changes</div>
+                                                            <div className="text-xs text-gray-500">Backup your work</div>
+                                                        </div>
+                                                    </button>
+                                                </div>
+                                            </Dropdown>
                                             
-                                            {/* Divider */}
-                                            <div className="w-px h-8 bg-slate-600 mx-1"></div>
-                                            
-                                            {/* Export Bulksheet - Primary Action */}
-                                            <button
-                                                onClick={downloadChanges}
-                                                className={`px-4 py-2 rounded-lg transition text-sm font-medium flex items-center gap-2 shadow-md ${
-                                                    changes.length > 0 
-                                                        ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700' 
-                                                        : 'bg-slate-600 text-slate-400 cursor-not-allowed'
-                                                }`}
-                                                disabled={changes.length === 0}
+                                            {/* Tools Dropdown */}
+                                            <Dropdown
+                                                align="right"
+                                                trigger={
+                                                    <button className={`h-10 px-4 rounded-full text-sm font-medium flex items-center gap-2 transition shadow-sm ${
+                                                        showReferencePanel 
+                                                            ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                                                            : 'bg-white border border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                                                    }`}>
+                                                        <span>🛠️</span> Tools
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                        </svg>
+                                                    </button>
+                                                }
                                             >
-                                                <span>📥</span>
-                                                <span>Export Bulksheet</span>
-                                                {changes.length > 0 && (
-                                                    <span className="bg-white text-green-700 px-2 py-0.5 rounded-full text-xs font-bold">
-                                                        {changes.length}
-                                                    </span>
-                                                )}
-                                            </button>
-                                            
-                                            {/* Divider */}
-                                            <div className="w-px h-8 bg-slate-600 mx-1"></div>
-                                            
-                                            {/* Target Checker */}
-                                            <button
-                                                onClick={() => setShowReferencePanel(!showReferencePanel)}
-                                                className={`px-3 py-2 rounded-lg transition text-sm font-medium flex items-center gap-1.5 ${
-                                                    showReferencePanel 
-                                                        ? 'bg-orange-500 text-white hover:bg-orange-600 shadow-md shadow-orange-500/30' 
-                                                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                                                }`}
-                                            >
-                                                <span>🎯</span>
-                                                <span>Target Checker</span>
-                                            </button>
-                                            
-                                            {/* Find & Replace */}
-                                            <button
-                                                onClick={() => setShowFindReplaceModal(true)}
-                                                className="px-3 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition text-sm font-medium flex items-center gap-1.5"
-                                                title="Find and replace text across multiple rows"
-                                            >
-                                                <span>🔍</span>
-                                                <span>Find & Replace</span>
-                                            </button>
-                                            
-                                            {/* Divider */}
-                                            <div className="w-px h-8 bg-slate-600 mx-1"></div>
-                                            
-                                            {/* Save/Load Changes Group */}
-                                            <div className="flex items-center gap-1.5">
-                                                <button
-                                                    onClick={downloadChangesFile}
-                                                    className={`px-2.5 py-2 rounded-lg transition text-xs font-medium flex items-center gap-1 ${
-                                                        hasSavedChanges 
-                                                            ? 'bg-purple-600 text-white hover:bg-purple-700' 
-                                                            : 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                                                    }`}
-                                                    disabled={!hasSavedChanges}
-                                                    title="Download your changes as a backup file"
-                                                >
-                                                    <span>💾</span>
-                                                    <span>Save</span>
-                                                </button>
-                                                <label className={`cursor-pointer px-2.5 py-2 rounded-lg transition text-xs font-medium flex items-center gap-1 ${
-                                                    'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                                                }`}>
-                                                    <span>📂</span>
-                                                    <span>Load</span>
-                                                    <input type="file" accept=".json" onChange={uploadChangesFile} className="hidden" />
-                                                </label>
-                                            </div>
+                                                <div className="bg-white rounded-2xl shadow-xl border py-2 w-56">
+                                                    <button 
+                                                        onClick={() => setShowReferencePanel(!showReferencePanel)}
+                                                        className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-3 ${
+                                                            showReferencePanel ? 'bg-orange-50 text-orange-700' : 'text-gray-700 hover:bg-orange-50'
+                                                        }`}
+                                                    >
+                                                        <span className="text-orange-500 text-lg">🎯</span>
+                                                        <div>
+                                                            <div className="font-medium">Target Checker</div>
+                                                            <div className="text-xs text-gray-500">Verify keywords & ASINs</div>
+                                                        </div>
+                                                        {showReferencePanel && <span className="ml-auto text-orange-500">✓</span>}
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => setShowFindReplaceModal(true)}
+                                                        className="w-full px-4 py-2.5 text-left text-gray-700 hover:bg-blue-50 text-sm flex items-center gap-3"
+                                                    >
+                                                        <span className="text-blue-500 text-lg">🔍</span>
+                                                        <div>
+                                                            <div className="font-medium">Find & Replace</div>
+                                                            <div className="text-xs text-gray-500">Bulk text edits</div>
+                                                        </div>
+                                                    </button>
+                                                </div>
+                                            </Dropdown>
                                             
                                             {/* Auto-save indicator */}
                                             {hasSavedChanges && (
-                                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-900/50 text-green-400 rounded-lg text-xs font-medium border border-green-800">
-                                                    <span className="animate-pulse text-green-400">●</span>
+                                                <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium border border-emerald-200">
+                                                    <span className="animate-pulse text-emerald-500">●</span>
                                                     <span>{savedChangesCount} saved</span>
                                                 </div>
                                             )}
@@ -2488,21 +2570,56 @@
                                     )}
                                 </div>
                             </div>
+                            
+                            {/* Pill Navigation Tabs */}
+                            {data.length > 0 && (
+                                <div className="bg-white rounded-full p-1.5 shadow-sm border border-gray-200 flex items-center gap-1 w-fit">
+                                    {[
+                                        { id: 'campaigns', label: 'Campaigns', icon: '📢', count: data.filter(r => r.Entity === 'Campaign').length },
+                                        { id: 'adgroups', label: 'Ad Groups', icon: '📁', count: data.filter(r => r.Entity === 'Ad Group').length },
+                                        { id: 'products', label: 'Products', icon: '📦', count: data.filter(r => r.Entity === 'Product Ad').length },
+                                        { id: 'keywords', label: 'Keywords', icon: '🔑', count: data.filter(r => r.Entity === 'Keyword').length },
+                                        { id: 'targeting', label: 'Targeting', icon: '🎯', count: data.filter(r => r.Entity === 'Product Targeting').length },
+                                        { id: 'negative', label: 'Negatives', icon: '🚫', count: data.filter(r => r.Entity === 'Negative Keyword' || r.Entity === 'Campaign Negative Keyword').length },
+                                        { id: 'changes', label: 'Changes', icon: '✏️', count: changes.length }
+                                    ].map(tab => (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => setActiveTab(tab.id)}
+                                            className={`flex items-center gap-2 px-4 py-2 rounded-full transition text-sm font-medium whitespace-nowrap ${
+                                                activeTab === tab.id
+                                                    ? 'bg-cyan-500 text-white shadow-sm'
+                                                    : 'text-gray-600 hover:bg-gray-100'
+                                            }`}
+                                        >
+                                            <span>{tab.icon}</span>
+                                            <span>{tab.label}</span>
+                                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                                                activeTab === tab.id
+                                                    ? 'bg-white/25 text-white'
+                                                    : 'bg-gray-200 text-gray-600'
+                                            }`}>
+                                                {tab.count}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                     
                     {/* Export Tip Banner */}
                     {data.length > 0 && changes.length > 0 && showExportTip && (
-                        <div className="bg-blue-50 border-b border-blue-200">
+                        <div className="bg-cyan-50 border-b border-cyan-200">
                             <div className="max-w-[98%] mx-auto px-4 py-2 flex items-center justify-between">
-                                <p className="text-xs text-blue-700">
+                                <p className="text-xs text-cyan-700">
                                     💡 <strong>Tip:</strong> Export Bulksheet creates an Amazon-compatible CSV with {changes.length} {changes.length === 1 ? 'change' : 'changes'} 
                                     (new items will be created, modified items will be updated)
                                     &nbsp;•&nbsp;<span className="font-medium">Changes are auto-saved</span> - safe to close/reload anytime!
                                 </p>
                                 <button
                                     onClick={() => setShowExportTip(false)}
-                                    className="text-blue-500 hover:text-blue-700 font-bold text-sm ml-4"
+                                    className="text-cyan-500 hover:text-cyan-700 font-bold text-sm ml-4"
                                     title="Close tip"
                                 >
                                     ✕
@@ -2586,50 +2703,15 @@
                     <div className="max-w-[98%] mx-auto px-4 py-6">
                             {data.length > 0 && (
                                 <>
-                                    {/* Tabs */}
-                                    <div className="bg-white rounded-lg shadow-sm mb-4 border border-gray-200">
-                                        <div className="flex gap-1 p-2 overflow-x-auto">
-                                            {[
-                                                { id: 'campaigns', label: 'Campaigns', icon: '📢', count: data.filter(r => r.Entity === 'Campaign').length },
-                                                { id: 'adgroups', label: 'Ad Groups', icon: '📁', count: data.filter(r => r.Entity === 'Ad Group').length },
-                                                { id: 'products', label: 'Products', icon: '📦', count: data.filter(r => r.Entity === 'Product Ad').length },
-                                                { id: 'keywords', label: 'Keywords', icon: '🔑', count: data.filter(r => r.Entity === 'Keyword').length },
-                                                { id: 'targeting', label: 'Targeting', icon: '🎯', count: data.filter(r => r.Entity === 'Product Targeting').length },
-                                                { id: 'negative', label: 'Negatives', icon: '🚫', count: data.filter(r => r.Entity === 'Negative Keyword' || r.Entity === 'Campaign Negative Keyword').length },
-                                                { id: 'changes', label: 'Changes', icon: '✏️', count: changes.length }
-                                            ].map(tab => (
-                                                <button
-                                                    key={tab.id}
-                                                    onClick={() => setActiveTab(tab.id)}
-                                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition text-sm font-medium whitespace-nowrap ${
-                                                        activeTab === tab.id
-                                                            ? 'bg-blue-600 text-white shadow-md'
-                                                            : 'text-gray-700 hover:bg-gray-100'
-                                                    }`}
-                                                >
-                                                    <span>{tab.icon}</span>
-                                                    <span>{tab.label}</span>
-                                                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                                                        activeTab === tab.id
-                                                            ? 'bg-white text-blue-700'
-                                                            : 'bg-gray-200 text-gray-700'
-                                                    }`}>
-                                                        {tab.count}
-                                                    </span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
                                     {/* Search and Actions */}
-                                    <div className="bg-white rounded-lg shadow-sm p-4 mb-4 border border-gray-200">
+                                    <div className="bg-white rounded-2xl shadow-sm p-4 mb-4 border border-gray-200">
                                         <div className="flex flex-col gap-3">
                                             <input
                                                 type="text"
                                                 placeholder="Search..."
                                                 value={searchTerm}
                                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                                className="px-4 py-2 border border-gray-200 rounded-full focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
                                             />
                                             <div className="flex items-center gap-2">
                                                 {/* Add New dropdown with Campaign always accessible */}
@@ -2648,19 +2730,21 @@
                                                                 }
                                                             }, 200);
                                                         }}
-                                                        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium flex items-center gap-1"
+                                                        className="px-4 py-2 bg-cyan-500 text-white rounded-full hover:bg-cyan-600 text-xs font-medium flex items-center gap-1.5 shadow-sm transition"
                                                     >
                                                         <span>➕</span>
                                                         <span>Add New</span>
-                                                        <span className="ml-1">▼</span>
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                        </svg>
                                                     </button>
-                                                    <div className="hidden absolute left-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                                                    <div className="hidden absolute left-0 mt-1 w-48 bg-white rounded-2xl shadow-xl border border-gray-200 z-50 py-1">
                                                         <button
                                                             onClick={() => {
                                                                 setShowModal(true);
                                                                 setModalType('campaigns');
                                                             }}
-                                                            className="w-full text-left px-4 py-2 text-xs hover:bg-gray-100 rounded-t-lg flex items-center gap-2"
+                                                            className="w-full text-left px-4 py-2.5 text-xs hover:bg-cyan-50 flex items-center gap-2"
                                                         >
                                                             <span>📢</span>
                                                             <span>Campaign</span>
@@ -2670,7 +2754,7 @@
                                                                 setShowModal(true);
                                                                 setModalType('adgroups');
                                                             }}
-                                                            className="w-full text-left px-4 py-2 text-xs hover:bg-gray-100 flex items-center gap-2 border-b border-gray-100"
+                                                            className="w-full text-left px-4 py-2.5 text-xs hover:bg-cyan-50 flex items-center gap-2"
                                                         >
                                                             <span>📁</span>
                                                             <span>Ad Group</span>
@@ -2681,7 +2765,7 @@
                                                                     setShowModal(true);
                                                                     setModalType('keywords');
                                                                 }}
-                                                                className="w-full text-left px-4 py-2 text-xs hover:bg-gray-100 flex items-center gap-2"
+                                                                className="w-full text-left px-4 py-2.5 text-xs hover:bg-cyan-50 flex items-center gap-2"
                                                             >
                                                                 <span>🔑</span>
                                                                 <span>Keywords</span>
@@ -2693,7 +2777,7 @@
                                                                     setShowModal(true);
                                                                     setModalType('negative');
                                                                 }}
-                                                                className="w-full text-left px-4 py-2 text-xs hover:bg-gray-100 flex items-center gap-2"
+                                                                className="w-full text-left px-4 py-2.5 text-xs hover:bg-cyan-50 flex items-center gap-2"
                                                             >
                                                                 <span>🚫</span>
                                                                 <span>Negative Keywords</span>
@@ -2705,7 +2789,7 @@
                                                                     setShowModal(true);
                                                                     setModalType('products');
                                                                 }}
-                                                                className="w-full text-left px-4 py-2 text-xs hover:bg-gray-100 rounded-b-lg flex items-center gap-2"
+                                                                className="w-full text-left px-4 py-2.5 text-xs hover:bg-cyan-50 flex items-center gap-2"
                                                             >
                                                                 <span>📦</span>
                                                                 <span>Products</span>
@@ -2718,7 +2802,7 @@
                                                     <>
                                                         <button
                                                             onClick={selectAll}
-                                                            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium flex items-center gap-1"
+                                                            className="px-3 py-1.5 bg-cyan-500 text-white rounded-full hover:bg-cyan-600 text-xs font-medium flex items-center gap-1 transition"
                                                             title={`Select all ${changes.length} changed items`}
                                                         >
                                                             <span>☑</span>
@@ -2731,7 +2815,7 @@
                                                         </button>
                                                         <button
                                                             onClick={undoAllChanges}
-                                                            className="px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-xs font-medium flex items-center gap-1"
+                                                            className="px-3 py-1.5 bg-orange-500 text-white rounded-full hover:bg-orange-600 text-xs font-medium flex items-center gap-1 transition"
                                                             title="Revert all changes and remove all new items"
                                                         >
                                                             <span>↶</span>
@@ -2745,7 +2829,7 @@
                                                     <select
                                                         value={statusFilterValue}
                                                         onChange={(e) => setStatusFilterValue(e.target.value)}
-                                                        className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50 font-medium"
+                                                        className="px-3 py-1.5 text-xs border border-gray-200 rounded-full bg-white hover:bg-gray-50 font-medium"
                                                     >
                                                         <option value="all">All Items</option>
                                                         <option value="modified">📝 Modified Only</option>
@@ -2756,44 +2840,44 @@
 
                                                 {selectedItems.size > 0 && (
                                                     <>
-                                                        <span className="text-xs text-gray-600 font-medium">
-                                                            {selectedItems.size} selected:
+                                                        <span className="text-xs text-gray-600 font-medium px-2 py-1 bg-gray-100 rounded-full">
+                                                            {selectedItems.size} selected
                                                         </span>
                                                         <button
                                                             onClick={() => bulkUpdateState('enabled')}
-                                                            className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                                            className="px-3 py-1.5 text-xs bg-emerald-500 text-white rounded-full hover:bg-emerald-600 transition"
                                                         >
                                                             ▶ Enable
                                                         </button>
                                                         <button
                                                             onClick={() => bulkUpdateState('paused')}
-                                                            className="px-2 py-1 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700"
+                                                            className="px-3 py-1.5 text-xs bg-amber-500 text-white rounded-full hover:bg-amber-600 transition"
                                                         >
                                                             ⏸ Pause
                                                         </button>
                                                         <button
                                                             onClick={() => bulkUpdateState('archived')}
-                                                            className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
+                                                            className="px-3 py-1.5 text-xs bg-gray-500 text-white rounded-full hover:bg-gray-600 transition"
                                                         >
                                                             📦 Archive
                                                         </button>
                                                         <button
                                                             onClick={undoSelected}
-                                                            className="px-2 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700"
+                                                            className="px-3 py-1.5 text-xs bg-orange-500 text-white rounded-full hover:bg-orange-600 transition"
                                                             title="Revert selected items to original state or remove if new"
                                                         >
                                                             ↶ Undo
                                                         </button>
                                                         <button
                                                             onClick={deleteSelected}
-                                                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                                            className="px-3 py-1.5 text-xs bg-red-500 text-white rounded-full hover:bg-red-600 transition"
                                                         >
                                                             🗑️ Delete
                                                         </button>
                                                     </>
                                                 )}
 
-                                                <div className="ml-auto text-xs text-gray-600">
+                                                <div className="ml-auto text-xs text-gray-500 bg-gray-100 px-3 py-1.5 rounded-full">
                                                     Showing {getFilteredData().length} items
                                                 </div>
                                             </div>
@@ -2801,11 +2885,11 @@
 
                                         {/* Active Column Filters Display */}
                                         {Object.keys(columnFilters).length > 0 && (
-                                            <div className="bg-blue-50 rounded-lg shadow-sm p-3 mt-4 border border-blue-200">
+                                            <div className="bg-cyan-50 rounded-2xl shadow-sm p-3 mt-4 border border-cyan-200">
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className="text-xs font-semibold text-blue-900">Column Filters:</span>
+                                                    <span className="text-xs font-semibold text-cyan-900">Column Filters:</span>
                                                     {Object.entries(columnFilters).map(([column, values]) => (
-                                                        <div key={column} className="flex items-center gap-1 bg-white border border-blue-300 text-blue-800 px-2 py-1 rounded text-xs">
+                                                        <div key={column} className="flex items-center gap-1 bg-white border border-cyan-300 text-cyan-800 px-3 py-1 rounded-full text-xs">
                                                             <span className="font-medium">{column.replace(' (Informational only)', '')}:</span>
                                                             <span>{values.size} selected</span>
                                                             <button
@@ -2814,7 +2898,7 @@
                                                                     delete newFilters[column];
                                                                     setColumnFilters(newFilters);
                                                                 }}
-                                                                className="ml-1 text-blue-600 hover:text-blue-800 font-bold"
+                                                                className="ml-1 text-cyan-600 hover:text-cyan-800 font-bold"
                                                             >
                                                                 ×
                                                             </button>
@@ -2822,7 +2906,7 @@
                                                     ))}
                                                     <button
                                                         onClick={() => setColumnFilters({})}
-                                                        className="text-xs text-red-600 hover:text-red-800 underline ml-2"
+                                                        className="text-xs text-red-500 hover:text-red-700 underline ml-2"
                                                     >
                                                         Clear all column filters
                                                     </button>
@@ -2833,7 +2917,7 @@
 
                                     {/* Data Table */}
                                     {data.length > 0 ? (
-                                        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+                                        <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
                                             {showReferencePanel && (referenceKeywords || referenceProducts) && (
                                                 <div className="bg-orange-50 px-4 py-2 border-b border-orange-200 flex items-center gap-2 text-sm">
                                                     <span className="text-orange-700 font-medium">🎯 Target Checker Active:</span>
@@ -2912,6 +2996,27 @@
                                         </div>
                                     )}
                                 </>
+                            )}
+                            
+                            {/* Empty State - No Data Loaded */}
+                            {data.length === 0 && (
+                                <div className="flex flex-col items-center justify-center py-20">
+                                    <div className="w-24 h-24 bg-gradient-to-br from-cyan-100 to-blue-100 rounded-full flex items-center justify-center mb-6 shadow-lg">
+                                        <span className="text-5xl">📦</span>
+                                    </div>
+                                    <h2 className="text-2xl font-bold text-gray-800 mb-2">Welcome to Amazon PPC Manager</h2>
+                                    <p className="text-gray-500 mb-8 text-center max-w-md">
+                                        Upload your Amazon Sponsored Products bulksheet to start managing campaigns, keywords, and more.
+                                    </p>
+                                    <label className="cursor-pointer px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-full hover:from-cyan-600 hover:to-blue-700 transition flex items-center gap-3 text-lg font-medium shadow-lg hover:shadow-xl">
+                                        <span className="text-2xl">📂</span>
+                                        <span>Upload CSV File</span>
+                                        <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+                                    </label>
+                                    <p className="text-xs text-gray-400 mt-4">
+                                        Supports Amazon Sponsored Products bulk files
+                                    </p>
+                                </div>
                             )}
                     </div>
 
