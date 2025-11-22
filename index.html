@@ -271,7 +271,9 @@
 
         // Create unique ID for row comparison
         const getRowId = (row) => {
-            return `${row.Entity}|${row['Campaign ID']}|${row['Ad Group ID']}|${row['Keyword ID']}|${row['Ad ID']}|${row['Product Targeting ID']}|${row['Keyword Text']}|${row.SKU}`;
+            // Include _originalIndex if present to handle rows with duplicate logical IDs
+            const baseId = `${row.Entity}|${row['Campaign ID']}|${row['Ad Group ID']}|${row['Keyword ID']}|${row['Ad ID']}|${row['Product Targeting ID']}|${row['Keyword Text']}|${row.SKU}`;
+            return row._originalIndex !== undefined ? `${row._originalIndex}|${baseId}` : baseId;
         };
 
         // Format product targeting expressions from simple input
@@ -1238,11 +1240,29 @@
             };
 
             const changes = useMemo(() => {
-                return data.filter(row => {
+                const changeList = data.filter(row => {
                     const rowId = getRowId(row);
                     const original = originalRowMap.get(rowId);
                     return !original || hasRowChanged(original, row);
                 });
+                
+                // Debug logging when changes appear unexpectedly
+                if (changeList.length > 0 && data.length > 0 && originalRowMap.size > 0) {
+                    const newRows = changeList.filter(row => !originalRowMap.has(getRowId(row)));
+                    const modifiedRows = changeList.filter(row => originalRowMap.has(getRowId(row)));
+                    
+                    if (newRows.length > 0) {
+                        console.log('Changes breakdown - New rows (no original found):', newRows.length);
+                        if (newRows.length <= 5) {
+                            newRows.forEach(r => console.log('  New:', r.Entity, getRowId(r)));
+                        }
+                    }
+                    if (modifiedRows.length > 0) {
+                        console.log('Changes breakdown - Modified rows:', modifiedRows.length);
+                    }
+                }
+                
+                return changeList;
             }, [data, originalRowMap]);
 
             // Normalize column names and values to handle different capitalizations from Amazon exports
@@ -1370,10 +1390,18 @@
                 }
                 
                 // Build the row map for the new data
+                // Add _originalIndex to each row to ensure uniqueness in row ID generation
                 const rowMap = new Map();
-                parsedData.forEach(row => {
+                parsedData.forEach((row, index) => {
+                    row._originalIndex = index;
                     rowMap.set(getRowId(row), { ...row });
                 });
+                
+                console.log('Total rows:', parsedData.length);
+                console.log('Unique row IDs:', rowMap.size);
+                if (parsedData.length !== rowMap.size) {
+                    console.warn('WARNING: Found', parsedData.length - rowMap.size, 'duplicate row IDs - this may cause phantom changes!');
+                }
                 
                 setOriginalFileName(file.name);
                 setSelectedItems(new Set());
@@ -1387,6 +1415,23 @@
                     // Use a batch state update to prevent auto-save from seeing mismatched state
                     console.log('Setting fresh data - no saved changes to apply');
                     console.log('Rows:', parsedData.length);
+                    console.log('Row map size:', rowMap.size);
+                    
+                    // Verify every row can be found in the map
+                    let missingCount = 0;
+                    parsedData.forEach(row => {
+                        if (!rowMap.has(getRowId(row))) {
+                            missingCount++;
+                            if (missingCount <= 3) {
+                                console.log('Row not in map:', getRowId(row));
+                            }
+                        }
+                    });
+                    if (missingCount > 0) {
+                        console.error('ERROR:', missingCount, 'rows are not in the row map!');
+                    } else {
+                        console.log('✓ All rows have matching entries in row map');
+                    }
                     
                     // Set data and original map together
                     setData(parsedData);
@@ -1830,6 +1875,15 @@
             // Helper function to normalize keywords (replace + with spaces)
             const normalizeKeyword = (keyword) => {
                 return keyword.trim().toLowerCase().replace(/\+/g, ' ').replace(/\s+/g, ' ');
+            };
+
+            // Helper function to parse numbers with comma or period as decimal separator
+            const parseNumber = (value) => {
+                if (value === null || value === undefined || value === '') return 0;
+                // Convert to string and replace comma with period for European format
+                const normalized = String(value).replace(',', '.');
+                const parsed = parseFloat(normalized);
+                return isNaN(parsed) ? 0 : parsed;
             };
 
             // PERFORMANCE OPTIMIZATION: Pre-compute reference lists as Sets for O(1) lookup
@@ -2312,8 +2366,8 @@
                 )
                 // Sort by sales (highest to lowest)
                 .sort((a, b) => {
-                    const salesA = parseFloat(a.Sales || 0);
-                    const salesB = parseFloat(b.Sales || 0);
+                    const salesA = parseNumber(a.Sales);
+                    const salesB = parseNumber(b.Sales);
                     return salesB - salesA;
                 });
 
@@ -2323,8 +2377,8 @@
                 )
                 // Sort by sales (highest to lowest)
                 .sort((a, b) => {
-                    const salesA = parseFloat(a.Sales || 0);
-                    const salesB = parseFloat(b.Sales || 0);
+                    const salesA = parseNumber(a.Sales);
+                    const salesB = parseNumber(b.Sales);
                     return salesB - salesA;
                 });
 
@@ -2347,8 +2401,8 @@
                             }
                             
                             rootMap[word].count++;
-                            rootMap[word].spend += parseFloat(kw.Spend || 0);
-                            rootMap[word].sales += parseFloat(kw.Sales || 0);
+                            rootMap[word].spend += parseNumber(kw.Spend);
+                            rootMap[word].sales += parseNumber(kw.Sales);
                             rootMap[word].keywords.push(keywordText);
                         }
                     });
@@ -3403,10 +3457,11 @@
                                                         bVal = b.metadata?.[metadataSort.column] || '';
                                                     }
                                                     
-                                                    // Try numeric comparison first
-                                                    const aNum = parseFloat(aVal);
-                                                    const bNum = parseFloat(bVal);
-                                                    if (!isNaN(aNum) && !isNaN(bNum)) {
+                                                    // Try numeric comparison first (handle European comma format)
+                                                    const aNum = parseNumber(aVal);
+                                                    const bNum = parseNumber(bVal);
+                                                    // Check if both values are actually numbers (not empty strings parsed as 0)
+                                                    if ((aVal !== '' && !isNaN(aNum)) && (bVal !== '' && !isNaN(bNum))) {
                                                         return metadataSort.direction === 'asc' ? aNum - bNum : bNum - aNum;
                                                     }
                                                     
@@ -5194,7 +5249,7 @@
                                                                                     })
                                                                                     .map((kw, i) => {
                                                                                     const clicks = parseInt(kw.Clicks || 0);
-                                                                                    const spend = parseFloat(kw.Spend || 0);
+                                                                                    const spend = parseNumber(kw.Spend);
                                                                                     const cpc = clicks > 0 ? spend / clicks : 0;
                                                                                     const inReferenceList = isInReferenceList && isInReferenceList(kw);
                                                                                     const isSelected = (selectedKeywords[adGroupId] || new Set()).has(kw['Keyword ID']);
@@ -5223,13 +5278,13 @@
                                                                                                 {kw.State}
                                                                                             </span>
                                                                                         </td>
-                                                                                        <td className="py-1 text-right font-medium text-blue-700">${parseFloat(kw.Bid || 0).toFixed(2)}</td>
+                                                                                        <td className="py-1 text-right font-medium text-blue-700">${parseNumber(kw.Bid).toFixed(2)}</td>
                                                                                         <td className="py-1 text-right">${cpc.toFixed(2)}</td>
                                                                                         <td className="py-1 text-right">{clicks}</td>
                                                                                         <td className="py-1 text-right">{parseInt(kw.Impressions || 0)}</td>
                                                                                         <td className="py-1 text-right">{parseInt(kw.Orders || 0)}</td>
                                                                                         <td className="py-1 text-right">${spend.toFixed(2)}</td>
-                                                                                        <td className="py-1 text-right">${parseFloat(kw.Sales || 0).toFixed(2)}</td>
+                                                                                        <td className="py-1 text-right">${parseNumber(kw.Sales).toFixed(2)}</td>
                                                                                         <td className="py-1 text-center">
                                                                                             <div className="flex gap-1 justify-center">
                                                                                                 {kw.State !== 'enabled' && (
@@ -5394,7 +5449,7 @@
                                                                             <tbody>
                                                                                 {productTargets.map((pt, i) => {
                                                                                     const clicks = parseInt(pt.Clicks || 0);
-                                                                                    const spend = parseFloat(pt.Spend || 0);
+                                                                                    const spend = parseNumber(pt.Spend);
                                                                                     const cpc = clicks > 0 ? spend / clicks : 0;
                                                                                     const inReferenceList = isInReferenceList && isInReferenceList(pt);
                                                                                     
@@ -5414,11 +5469,11 @@
                                                                                                 {pt.State}
                                                                                             </span>
                                                                                         </td>
-                                                                                        <td className="py-1 text-right font-medium text-blue-700">${parseFloat(pt.Bid || 0).toFixed(2)}</td>
+                                                                                        <td className="py-1 text-right font-medium text-blue-700">${parseNumber(pt.Bid).toFixed(2)}</td>
                                                                                         <td className="py-1 text-right">${cpc.toFixed(2)}</td>
                                                                                         <td className="py-1 text-right">{clicks}</td>
                                                                                         <td className="py-1 text-right">${spend.toFixed(2)}</td>
-                                                                                        <td className="py-1 text-right">${parseFloat(pt.Sales || 0).toFixed(2)}</td>
+                                                                                        <td className="py-1 text-right">${parseNumber(pt.Sales).toFixed(2)}</td>
                                                                                         <td className="py-1 text-center">
                                                                                             <div className="flex gap-1 justify-center">
                                                                                                 {pt.State !== 'enabled' && (
