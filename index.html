@@ -692,6 +692,19 @@
             );
         }
 
+        // ========================================
+        // HELPER FUNCTIONS (Global Scope)
+        // ========================================
+        // Helper function to parse numbers with comma or period as decimal separator
+        // Defined at global scope to avoid Babel deoptimization issues with large files
+        const parseNumber = (value) => {
+            if (value === null || value === undefined || value === '') return 0;
+            // Convert to string and replace comma with period for European format
+            const normalized = String(value).replace(',', '.');
+            const parsed = parseFloat(normalized);
+            return isNaN(parsed) ? 0 : parsed;
+        };
+
         function App() {
             const [data, setData] = useState([]);
             const [originalRowMap, setOriginalRowMap] = useState(new Map());
@@ -1856,15 +1869,6 @@
             // Helper function to normalize keywords (replace + with spaces)
             const normalizeKeyword = (keyword) => {
                 return keyword.trim().toLowerCase().replace(/\+/g, ' ').replace(/\s+/g, ' ');
-            };
-
-            // Helper function to parse numbers with comma or period as decimal separator
-            const parseNumber = (value) => {
-                if (value === null || value === undefined || value === '') return 0;
-                // Convert to string and replace comma with period for European format
-                const normalized = String(value).replace(',', '.');
-                const parsed = parseFloat(normalized);
-                return isNaN(parsed) ? 0 : parsed;
             };
 
             // PERFORMANCE OPTIMIZATION: Pre-compute reference lists as Sets for O(1) lookup
