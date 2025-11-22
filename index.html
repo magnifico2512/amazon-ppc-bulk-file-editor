@@ -1240,25 +1240,76 @@
             };
 
             const changes = useMemo(() => {
+                console.log('=== CHANGES CALCULATION ===');
+                console.log('Data length:', data.length);
+                console.log('OriginalRowMap size:', originalRowMap.size);
+                
+                // GUARD: Don't calculate changes if state is not fully initialized
+                // This prevents phantom changes during the brief moment between setData and setOriginalRowMap
+                if (data.length > 0 && originalRowMap.size === 0) {
+                    console.log('SKIPPING: originalRowMap not yet initialized');
+                    return [];
+                }
+                
+                // GUARD: Check if data and originalRowMap are in sync (same _originalIndex range)
+                if (data.length > 0 && originalRowMap.size > 0 && data.length !== originalRowMap.size) {
+                    console.warn('WARNING: data.length !== originalRowMap.size', data.length, 'vs', originalRowMap.size);
+                }
+                
                 const changeList = data.filter(row => {
                     const rowId = getRowId(row);
                     const original = originalRowMap.get(rowId);
                     return !original || hasRowChanged(original, row);
                 });
                 
-                // Debug logging when changes appear unexpectedly
+                console.log('Changes detected:', changeList.length);
+                
+                // Debug: Show breakdown by entity type
+                if (changeList.length > 0) {
+                    const byEntity = {};
+                    changeList.forEach(r => {
+                        byEntity[r.Entity] = (byEntity[r.Entity] || 0) + 1;
+                    });
+                    console.log('Changes by entity type:', byEntity);
+                }
+                
+                // Debug: Show why changes are being detected
                 if (changeList.length > 0 && data.length > 0 && originalRowMap.size > 0) {
                     const newRows = changeList.filter(row => !originalRowMap.has(getRowId(row)));
                     const modifiedRows = changeList.filter(row => originalRowMap.has(getRowId(row)));
                     
+                    console.log('New rows (no original):', newRows.length);
+                    console.log('Modified rows:', modifiedRows.length);
+                    
+                    // Show first few examples of each type
                     if (newRows.length > 0) {
-                        console.log('Changes breakdown - New rows (no original found):', newRows.length);
-                        if (newRows.length <= 5) {
-                            newRows.forEach(r => console.log('  New:', r.Entity, getRowId(r)));
-                        }
+                        console.log('--- First 3 "new" rows (no original found) ---');
+                        newRows.slice(0, 3).forEach(r => {
+                            console.log('  Row ID:', getRowId(r));
+                            console.log('  Entity:', r.Entity, '| _originalIndex:', r._originalIndex);
+                        });
                     }
+                    
                     if (modifiedRows.length > 0) {
-                        console.log('Changes breakdown - Modified rows:', modifiedRows.length);
+                        console.log('--- First 3 "modified" rows ---');
+                        modifiedRows.slice(0, 3).forEach(r => {
+                            const rowId = getRowId(r);
+                            const orig = originalRowMap.get(rowId);
+                            console.log('  Row ID:', rowId);
+                            console.log('  Entity:', r.Entity);
+                            
+                            // Show which fields differ
+                            const fields = ['State', 'Daily Budget', 'Ad Group Default Bid', 'Bid', 'Match Type', 
+                                'Bidding Strategy', 'Targeting Type', 'Keyword Text', 'Product Targeting Expression', 
+                                'Percentage', 'SKU', 'End Date', 'Campaign Name', 'Ad Group Name'];
+                            fields.forEach(f => {
+                                const origVal = String(orig[f] || '').trim();
+                                const currVal = String(r[f] || '').trim();
+                                if (origVal !== currVal) {
+                                    console.log(`    DIFF [${f}]: "${origVal}" → "${currVal}"`);
+                                }
+                            });
+                        });
                     }
                 }
                 
@@ -1394,13 +1445,29 @@
                 const rowMap = new Map();
                 parsedData.forEach((row, index) => {
                     row._originalIndex = index;
-                    rowMap.set(getRowId(row), { ...row });
+                    const rowId = getRowId(row);
+                    rowMap.set(rowId, { ...row });
                 });
                 
                 console.log('Total rows:', parsedData.length);
-                console.log('Unique row IDs:', rowMap.size);
-                if (parsedData.length !== rowMap.size) {
-                    console.warn('WARNING: Found', parsedData.length - rowMap.size, 'duplicate row IDs - this may cause phantom changes!');
+                console.log('Unique row IDs (rowMap size):', rowMap.size);
+                
+                // Verify every row in parsedData can be found in rowMap
+                let verifyErrors = 0;
+                parsedData.forEach((row, index) => {
+                    const rowId = getRowId(row);
+                    if (!rowMap.has(rowId)) {
+                        verifyErrors++;
+                        if (verifyErrors <= 3) {
+                            console.error('Row not found in rowMap:', rowId, '| index:', index);
+                        }
+                    }
+                });
+                
+                if (verifyErrors > 0) {
+                    console.error('CRITICAL: ' + verifyErrors + ' rows cannot be found in rowMap!');
+                } else {
+                    console.log('✓ Verification passed: all rows can be found in rowMap');
                 }
                 
                 setOriginalFileName(file.name);
@@ -1412,26 +1479,8 @@
                     await applySavedChanges(parsedData, rowMap);
                 } else {
                     // CRITICAL: Set both data and originalRowMap atomically
-                    // Use a batch state update to prevent auto-save from seeing mismatched state
-                    console.log('Setting fresh data - no saved changes to apply');
-                    console.log('Rows:', parsedData.length);
-                    console.log('Row map size:', rowMap.size);
-                    
-                    // Verify every row can be found in the map
-                    let missingCount = 0;
-                    parsedData.forEach(row => {
-                        if (!rowMap.has(getRowId(row))) {
-                            missingCount++;
-                            if (missingCount <= 3) {
-                                console.log('Row not in map:', getRowId(row));
-                            }
-                        }
-                    });
-                    if (missingCount > 0) {
-                        console.error('ERROR:', missingCount, 'rows are not in the row map!');
-                    } else {
-                        console.log('✓ All rows have matching entries in row map');
-                    }
+                    console.log('>>> SETTING FRESH DATA <<<');
+                    console.log('Rows:', parsedData.length, '| Row map size:', rowMap.size);
                     
                     // Set data and original map together
                     setData(parsedData);
