@@ -894,10 +894,17 @@
             }, [keywordTableData, tableColumns]);
             
             // Check for saved Target Checker data when panel opens
+            // Only prompt to restore if the current table is empty (new session)
             useEffect(() => {
                 if (!showReferencePanel) return;
                 
                 const checkSavedTargetChecker = async () => {
+                    // Only offer to restore if current table is empty
+                    // This prevents the prompt from showing when reopening the panel in the same session
+                    if (keywordTableData.length > 0) {
+                        return; // Already have data, don't prompt
+                    }
+                    
                     const savedData = await loadTargetCheckerFromDB();
                     if (savedData && savedData.tableData && savedData.tableData.length > 0) {
                         const shouldRestore = confirm(
@@ -914,7 +921,7 @@
                 };
                 
                 checkSavedTargetChecker();
-            }, [showReferencePanel]);
+            }, [showReferencePanel]); // Note: intentionally not including keywordTableData to avoid re-running
             
             // Apply saved changes to uploaded data
             const applySavedChanges = async (baseData, baseRowMap) => {
@@ -1117,11 +1124,8 @@
             
             // Auto-save changes to IndexedDB
             useEffect(() => {
-                // CRITICAL: Don't auto-save during file upload to prevent race conditions
-                if (isLoadingFile.current) {
-                    console.log('Auto-save BLOCKED: File is currently loading');
-                    return;
-                }
+                // Don't auto-save during file upload to prevent race conditions
+                if (isLoadingFile.current) return;
                 
                 if (data.length === 0) return; // Don't save empty state
                 if (originalRowMap.size === 0) return; // Don't save if originalRowMap not ready
@@ -1133,8 +1137,6 @@
                         const original = originalRowMap.get(rowId);
                         return !original || hasRowChanged(original, row);
                     });
-                    
-                    console.log('Auto-save check: found', currentChanges.length, 'changes');
                     
                     if (currentChanges.length > 0) {
                         // Convert originalRowMap to plain object for storage
@@ -1149,8 +1151,6 @@
                             (baseData[0] ? JSON.stringify(baseData[0]) : '') + '_' +
                             (baseData[baseData.length - 1] ? JSON.stringify(baseData[baseData.length - 1]) : '');
                         
-                        console.log('Auto-saving', currentChanges.length, 'changes with checksum:', dataChecksum);
-                        
                         await saveChangesToDB({
                             changes: currentChanges,
                             originalRowMap: originalMapObj,
@@ -1162,7 +1162,6 @@
                         setSavedChangesCount(currentChanges.length);
                     } else {
                         // No changes, clear any saved data
-                        console.log('No changes detected - clearing saved data');
                         await clearSavedChanges();
                     }
                 };
@@ -1240,20 +1239,9 @@
             };
 
             const changes = useMemo(() => {
-                console.log('=== CHANGES CALCULATION ===');
-                console.log('Data length:', data.length);
-                console.log('OriginalRowMap size:', originalRowMap.size);
-                
                 // GUARD: Don't calculate changes if state is not fully initialized
-                // This prevents phantom changes during the brief moment between setData and setOriginalRowMap
                 if (data.length > 0 && originalRowMap.size === 0) {
-                    console.log('SKIPPING: originalRowMap not yet initialized');
                     return [];
-                }
-                
-                // GUARD: Check if data and originalRowMap are in sync (same _originalIndex range)
-                if (data.length > 0 && originalRowMap.size > 0 && data.length !== originalRowMap.size) {
-                    console.warn('WARNING: data.length !== originalRowMap.size', data.length, 'vs', originalRowMap.size);
                 }
                 
                 const changeList = data.filter(row => {
@@ -1261,57 +1249,6 @@
                     const original = originalRowMap.get(rowId);
                     return !original || hasRowChanged(original, row);
                 });
-                
-                console.log('Changes detected:', changeList.length);
-                
-                // Debug: Show breakdown by entity type
-                if (changeList.length > 0) {
-                    const byEntity = {};
-                    changeList.forEach(r => {
-                        byEntity[r.Entity] = (byEntity[r.Entity] || 0) + 1;
-                    });
-                    console.log('Changes by entity type:', byEntity);
-                }
-                
-                // Debug: Show why changes are being detected
-                if (changeList.length > 0 && data.length > 0 && originalRowMap.size > 0) {
-                    const newRows = changeList.filter(row => !originalRowMap.has(getRowId(row)));
-                    const modifiedRows = changeList.filter(row => originalRowMap.has(getRowId(row)));
-                    
-                    console.log('New rows (no original):', newRows.length);
-                    console.log('Modified rows:', modifiedRows.length);
-                    
-                    // Show first few examples of each type
-                    if (newRows.length > 0) {
-                        console.log('--- First 3 "new" rows (no original found) ---');
-                        newRows.slice(0, 3).forEach(r => {
-                            console.log('  Row ID:', getRowId(r));
-                            console.log('  Entity:', r.Entity, '| _originalIndex:', r._originalIndex);
-                        });
-                    }
-                    
-                    if (modifiedRows.length > 0) {
-                        console.log('--- First 3 "modified" rows ---');
-                        modifiedRows.slice(0, 3).forEach(r => {
-                            const rowId = getRowId(r);
-                            const orig = originalRowMap.get(rowId);
-                            console.log('  Row ID:', rowId);
-                            console.log('  Entity:', r.Entity);
-                            
-                            // Show which fields differ
-                            const fields = ['State', 'Daily Budget', 'Ad Group Default Bid', 'Bid', 'Match Type', 
-                                'Bidding Strategy', 'Targeting Type', 'Keyword Text', 'Product Targeting Expression', 
-                                'Percentage', 'SKU', 'End Date', 'Campaign Name', 'Ad Group Name'];
-                            fields.forEach(f => {
-                                const origVal = String(orig[f] || '').trim();
-                                const currVal = String(r[f] || '').trim();
-                                if (origVal !== currVal) {
-                                    console.log(`    DIFF [${f}]: "${origVal}" → "${currVal}"`);
-                                }
-                            });
-                        });
-                    }
-                }
                 
                 return changeList;
             }, [data, originalRowMap]);
@@ -1393,10 +1330,8 @@
                 const file = event.target.files[0];
                 if (!file) return;
 
-                // CRITICAL: Set loading flag to prevent auto-save race condition
+                // Set loading flag to prevent auto-save race condition
                 isLoadingFile.current = true;
-                console.log('=== FILE UPLOAD STARTED ===');
-                console.log('Loading flag set to true - auto-save will be blocked');
 
                 const text = await file.text();
                 const parsedData = await parseCSV(text);
@@ -1415,27 +1350,18 @@
                         (parsedData[parsedData.length - 1] ? JSON.stringify(parsedData[parsedData.length - 1]) : '');
                     const savedChecksum = savedData.dataChecksum || '';
                     
-                    console.log('=== FILE UPLOAD CHECK ===');
-                    console.log('New file:', file.name, 'Saved file:', savedFileName);
-                    console.log('New checksum:', newDataChecksum);
-                    console.log('Saved checksum:', savedChecksum);
-                    
                     // Only apply changes if filename AND checksum match
                     if (savedFileName === file.name && savedChecksum === newDataChecksum && savedChecksum !== '') {
                         shouldApplySavedChanges = confirm(`Found ${savedData.changes.length} saved changes from this exact file. Apply them?`);
                         if (!shouldApplySavedChanges) {
-                            // User chose not to apply, clear the saved changes
-                            console.log('User declined to apply - clearing saved changes');
                             await clearSavedChanges();
                         }
                     } else {
                         // Different file or different data - automatically clear old saved changes
-                        console.log('File/data mismatch - automatically clearing saved changes');
                         await clearSavedChanges();
                     }
                 } else {
-                    // No saved changes in DB - ensure state is clean
-                    console.log('No saved changes found in IndexedDB');
+                    // No saved changes in DB
                     setHasSavedChanges(false);
                     setSavedChangesCount(0);
                 }
@@ -1449,26 +1375,7 @@
                     rowMap.set(rowId, { ...row });
                 });
                 
-                console.log('Total rows:', parsedData.length);
-                console.log('Unique row IDs (rowMap size):', rowMap.size);
-                
-                // Verify every row in parsedData can be found in rowMap
-                let verifyErrors = 0;
-                parsedData.forEach((row, index) => {
-                    const rowId = getRowId(row);
-                    if (!rowMap.has(rowId)) {
-                        verifyErrors++;
-                        if (verifyErrors <= 3) {
-                            console.error('Row not found in rowMap:', rowId, '| index:', index);
-                        }
-                    }
-                });
-                
-                if (verifyErrors > 0) {
-                    console.error('CRITICAL: ' + verifyErrors + ' rows cannot be found in rowMap!');
-                } else {
-                    console.log('✓ Verification passed: all rows can be found in rowMap');
-                }
+                console.log('File loaded:', parsedData.length, 'rows');
                 
                 setOriginalFileName(file.name);
                 setSelectedItems(new Set());
@@ -1478,25 +1385,16 @@
                     console.log('Applying saved changes');
                     await applySavedChanges(parsedData, rowMap);
                 } else {
-                    // CRITICAL: Set both data and originalRowMap atomically
-                    console.log('>>> SETTING FRESH DATA <<<');
-                    console.log('Rows:', parsedData.length, '| Row map size:', rowMap.size);
-                    
-                    // Set data and original map together
+                    // Set fresh data - no saved changes to apply
                     setData(parsedData);
                     setOriginalRowMap(rowMap);
-                    
-                    // Force clear any lingering saved state
                     setHasSavedChanges(false);
                     setSavedChangesCount(0);
                 }
                 
-                // CRITICAL: Wait a bit to ensure React has updated state, then clear loading flag
-                // This prevents auto-save from running with mismatched state
+                // Clear loading flag after state is updated
                 setTimeout(() => {
                     isLoadingFile.current = false;
-                    console.log('Loading flag cleared - auto-save can run again');
-                    console.log('=== FILE UPLOAD COMPLETE ===');
                 }, 100);
             };
 
