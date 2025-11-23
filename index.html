@@ -115,6 +115,11 @@
         .dropdown-menu {
             min-width: max-content;
         }
+        /* Prevent text truncation in dropdowns */
+        .dropdown-animate div {
+            overflow: visible !important;
+            text-overflow: clip !important;
+        }
     </style>
 </head>
 <body>
@@ -2447,23 +2452,23 @@
                                             </button>
                                         }
                                     >
-                                        <div className="bg-white rounded-2xl shadow-xl border py-2 min-w-max">
-                                            <label className="block px-4 py-3 text-left text-gray-700 hover:bg-cyan-50 text-sm cursor-pointer whitespace-nowrap">
+                                        <div className="bg-white rounded-2xl shadow-xl border py-2" style={{ width: '320px', minWidth: '320px' }}>
+                                            <label className="block px-4 py-3 text-left text-gray-700 hover:bg-cyan-50 text-sm cursor-pointer">
                                                 <div className="flex items-center gap-3">
-                                                    <span className="text-lg">📄</span>
-                                                    <div>
-                                                        <div className="font-medium">Upload CSV</div>
-                                                        <div className="text-xs text-gray-500">Import bulksheet data</div>
+                                                    <span className="text-lg flex-shrink-0">📄</span>
+                                                    <div className="flex-shrink-0">
+                                                        <div className="font-medium whitespace-nowrap">Upload CSV</div>
+                                                        <div className="text-xs text-gray-500 whitespace-nowrap">Import bulksheet data</div>
                                                     </div>
                                                 </div>
                                                 <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
                                             </label>
-                                            <label className="block px-4 py-3 text-left text-gray-700 hover:bg-cyan-50 text-sm cursor-pointer whitespace-nowrap">
+                                            <label className="block px-4 py-3 text-left text-gray-700 hover:bg-cyan-50 text-sm cursor-pointer">
                                                 <div className="flex items-center gap-3">
-                                                    <span className="text-lg">📂</span>
-                                                    <div>
-                                                        <div className="font-medium">Load Changes</div>
-                                                        <div className="text-xs text-gray-500">Resume saved work</div>
+                                                    <span className="text-lg flex-shrink-0">📂</span>
+                                                    <div className="flex-shrink-0">
+                                                        <div className="font-medium whitespace-nowrap">Load Changes</div>
+                                                        <div className="text-xs text-gray-500 whitespace-nowrap">Resume saved work</div>
                                                     </div>
                                                 </div>
                                                 <input type="file" accept=".json" onChange={uploadChangesFile} className="hidden" />
