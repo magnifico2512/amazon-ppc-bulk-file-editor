@@ -10,6 +10,12 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
+        /* Prevent white background on scroll */
+        html, body {
+            background-color: #f9fafb; /* gray-50 */
+            min-width: 100%;
+        }
+        
         .scrollbar-thin::-webkit-scrollbar {
             width: 8px;
             height: 8px;
@@ -100,6 +106,14 @@
         }
         .dropdown-animate {
             animation: slideDown 0.15s ease-out;
+        }
+        /* Ensure dropdowns are always visible and not clipped */
+        .dropdown-container {
+            position: relative;
+            z-index: 100;
+        }
+        .dropdown-menu {
+            min-width: max-content;
         }
     </style>
 </head>
@@ -2433,7 +2447,7 @@
                                             </button>
                                         }
                                     >
-                                        <div className="bg-white rounded-2xl shadow-xl border py-2 w-56">
+                                        <div className="bg-white rounded-2xl shadow-xl border py-2 w-80">
                                             <label className="w-full px-4 py-3 text-left text-gray-700 hover:bg-cyan-50 text-sm flex items-center gap-3 cursor-pointer">
                                                 <span className="text-lg">📄</span>
                                                 <div>
