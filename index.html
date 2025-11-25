@@ -1921,36 +1921,38 @@
                 setData(newData);
             };
 
-            const toggleSelection = (index) => {
-                const newSelected = new Set(selectedItems);
-                if (newSelected.has(index)) {
-                    newSelected.delete(index);
-                } else {
-                    newSelected.add(index);
-                }
-                setSelectedItems(newSelected);
-            };
+            const toggleSelection = useCallback((index) => {
+                setSelectedItems(prevSelected => {
+                    const newSelected = new Set(prevSelected);
+                    if (newSelected.has(index)) {
+                        newSelected.delete(index);
+                    } else {
+                        newSelected.add(index);
+                    }
+                    return newSelected;
+                });
+            }, []);
 
-            const selectAll = () => {
-                const filtered = getFilteredData();
+            const selectAll = useCallback(() => {
+                const filtered = filteredData; // Use memoized filteredData directly
                 // PERFORMANCE: Use the pre-computed index map for O(1) lookups instead of O(n) indexOf
                 const filteredIndices = filtered.map(item => getDataIndex(item)).filter(i => i !== -1);
                 
-                // Check if all filtered items are currently selected
-                const allSelected = filteredIndices.every(index => selectedItems.has(index));
-                
-                if (allSelected) {
-                    // Deselect all filtered items
-                    const newSelected = new Set(selectedItems);
-                    filteredIndices.forEach(index => newSelected.delete(index));
-                    setSelectedItems(newSelected);
-                } else {
-                    // Select all filtered items
-                    const newSelected = new Set(selectedItems);
-                    filteredIndices.forEach(index => newSelected.add(index));
-                    setSelectedItems(newSelected);
-                }
-            };
+                setSelectedItems(prevSelected => {
+                    // Check if all filtered items are currently selected
+                    const allSelected = filteredIndices.every(index => prevSelected.has(index));
+                    
+                    const newSelected = new Set(prevSelected);
+                    if (allSelected) {
+                        // Deselect all filtered items
+                        filteredIndices.forEach(index => newSelected.delete(index));
+                    } else {
+                        // Select all filtered items
+                        filteredIndices.forEach(index => newSelected.add(index));
+                    }
+                    return newSelected;
+                });
+            }, [filteredData, getDataIndex]);
 
             const executeFindReplace = () => {
                 const { findText, replaceText, matchCase, selectedColumns } = findReplaceSettings;
@@ -2249,38 +2251,71 @@
                 return new Set();
             }, [referenceProducts]);
 
-            // OPTIMIZED: Check if an item is in the reference list using pre-computed Sets
-            const isInReferenceList = (row) => {
-                // Filter by portfolio if one is selected
-                if (referencePortfolio && getPortfolioName(row) !== referencePortfolio) {
-                    return false;
-                }
+            // PERFORMANCE: Pre-compute a Map of normalized keywords -> matching data rows
+            // This turns O(n) lookups into O(1) for each keyword check
+            const keywordDataMap = React.useMemo(() => {
+                const map = new Map();
+                data.forEach(row => {
+                    if (row.Entity === 'Keyword') {
+                        const normalized = normalizeKeyword(row['Keyword Text'] || '');
+                        if (!map.has(normalized)) {
+                            map.set(normalized, []);
+                        }
+                        map.get(normalized).push(row);
+                    }
+                });
+                return map;
+            }, [data]);
+
+            // PERFORMANCE: Pre-compute reference list membership for ALL rows
+            // This is memoized and only recalculated when dependencies change
+            const referenceListMembership = React.useMemo(() => {
+                if (!showReferencePanel) return new Map(); // Skip if panel is closed
                 
-                if (row.Entity === 'Keyword') {
-                    const keyword = normalizeKeyword(row['Keyword Text'] || '');
-                    return referenceKeywordSet.has(keyword);
-                }
-                
-                if ((row.Entity === 'Product Ad' || row.Entity === 'Product Targeting') && referenceProducts) {
-                    const sku = (row.SKU || '').toUpperCase();
-                    const asin = (row['ASIN (Informational only)'] || '').toUpperCase();
-                    const targeting = (row['Product Targeting Expression'] || '').toUpperCase();
-                    
-                    // Check if SKU or ASIN is in the set
-                    if (referenceProductSet.has(sku) || referenceProductSet.has(asin)) {
-                        return true;
+                const membership = new Map();
+                data.forEach((row, index) => {
+                    // Filter by portfolio if one is selected
+                    if (referencePortfolio && getPortfolioName(row) !== referencePortfolio) {
+                        membership.set(index, false);
+                        return;
                     }
                     
-                    // Check if any reference product is in the targeting expression
-                    for (const ref of referenceProductSet) {
-                        if (targeting.includes(ref)) {
-                            return true;
+                    if (row.Entity === 'Keyword') {
+                        const keyword = normalizeKeyword(row['Keyword Text'] || '');
+                        membership.set(index, referenceKeywordSet.has(keyword));
+                        return;
+                    }
+                    
+                    if ((row.Entity === 'Product Ad' || row.Entity === 'Product Targeting') && referenceProductSet.size > 0) {
+                        const sku = (row.SKU || '').toUpperCase();
+                        const asin = (row['ASIN (Informational only)'] || '').toUpperCase();
+                        const targeting = (row['Product Targeting Expression'] || '').toUpperCase();
+                        
+                        if (referenceProductSet.has(sku) || referenceProductSet.has(asin)) {
+                            membership.set(index, true);
+                            return;
+                        }
+                        
+                        // Check if any reference product is in the targeting expression
+                        for (const ref of referenceProductSet) {
+                            if (targeting.includes(ref)) {
+                                membership.set(index, true);
+                                return;
+                            }
                         }
                     }
-                }
-                
-                return false;
-            };
+                    
+                    membership.set(index, false);
+                });
+                return membership;
+            }, [data, showReferencePanel, referencePortfolio, referenceKeywordSet, referenceProductSet]);
+
+            // OPTIMIZED: Check if an item is in the reference list using pre-computed membership
+            const isInReferenceList = useCallback((row) => {
+                if (!showReferencePanel) return false;
+                const index = dataIndexMap.get(row);
+                return index !== undefined ? referenceListMembership.get(index) || false : false;
+            }, [showReferencePanel, dataIndexMap, referenceListMembership]);
 
             // Get list of unique portfolios
             const getPortfolioList = () => {
@@ -2318,7 +2353,8 @@
             }, [data]);
 
             // Check keyword status (exists in campaigns or not)
-            const getKeywordStatus = () => {
+            // PERFORMANCE: Memoized to prevent recalculation on every render
+            const getKeywordStatus = useMemo(() => {
                 // Use table data if in table mode
                 if (useTableMode && keywordTableData.length > 0) {
                     return keywordTableData.map(row => {
@@ -2333,11 +2369,13 @@
                             }
                         });
                         
-                        const existing = data.filter(rowData => {
-                            if (rowData.Entity !== 'Keyword') return false;
-                            if (referencePortfolio && getPortfolioName(rowData) !== referencePortfolio) return false;
-                            return normalizeKeyword(rowData['Keyword Text'] || '') === normalizedKeyword;
-                        });
+                        // PERFORMANCE: Use pre-computed map instead of filtering all data
+                        let existing = keywordDataMap.get(normalizedKeyword) || [];
+                        
+                        // Apply portfolio filter if needed
+                        if (referencePortfolio && existing.length > 0) {
+                            existing = existing.filter(rowData => getPortfolioName(rowData) === referencePortfolio);
+                        }
                         
                         // Get ALL match types (including paused) for display purposes
                         const allMatchTypes = [...new Set(existing.map(e => e['Match Type']))].filter(Boolean);
@@ -2467,11 +2505,13 @@
                             metadata[headers[i] || `Column ${i + 1}`] = row[i] || '';
                         }
                         
-                        const existing = data.filter(rowData => {
-                            if (rowData.Entity !== 'Keyword') return false;
-                            if (referencePortfolio && getPortfolioName(rowData) !== referencePortfolio) return false;
-                            return normalizeKeyword(rowData['Keyword Text'] || '') === normalizedKeyword;
-                        });
+                        // PERFORMANCE: Use pre-computed map instead of filtering all data
+                        let existing = keywordDataMap.get(normalizedKeyword) || [];
+                        
+                        // Apply portfolio filter if needed
+                        if (referencePortfolio && existing.length > 0) {
+                            existing = existing.filter(rowData => getPortfolioName(rowData) === referencePortfolio);
+                        }
                         
                         // Get ALL unique match types (including paused) for display purposes
                         const allMatchTypes = [...new Set(existing.map(e => e['Match Type']))].filter(Boolean);
@@ -2556,11 +2596,14 @@
                     // Simple single-column format
                     return lines.map(keyword => {
                         const normalizedKeyword = normalizeKeyword(keyword);
-                        const existing = data.filter(row => {
-                            if (row.Entity !== 'Keyword') return false;
-                            if (referencePortfolio && getPortfolioName(row) !== referencePortfolio) return false;
-                            return normalizeKeyword(row['Keyword Text'] || '') === normalizedKeyword;
-                        });
+                        
+                        // PERFORMANCE: Use pre-computed map instead of filtering all data
+                        let existing = keywordDataMap.get(normalizedKeyword) || [];
+                        
+                        // Apply portfolio filter if needed
+                        if (referencePortfolio && existing.length > 0) {
+                            existing = existing.filter(row => getPortfolioName(row) === referencePortfolio);
+                        }
                         
                         // Get ALL unique match types (including paused) for display purposes
                         const allMatchTypes = [...new Set(existing.map(e => e['Match Type']))].filter(Boolean);
@@ -2641,30 +2684,56 @@
                         };
                     });
                 }
-            };
+            }, [useTableMode, keywordTableData, tableColumns, keywordDataMap, referencePortfolio, referenceKeywords, campaignMap, adGroupMap]);
 
-            // Check product status
-            const getProductStatus = () => {
+            // PERFORMANCE: Pre-compute a Map for product lookups
+            const productDataMap = React.useMemo(() => {
+                const map = new Map();
+                data.forEach(row => {
+                    if (row.Entity === 'Product Ad' || row.Entity === 'Product Targeting') {
+                        const sku = (row.SKU || '').toUpperCase();
+                        const asin = (row['ASIN (Informational only)'] || '').toUpperCase();
+                        
+                        // Index by SKU
+                        if (sku) {
+                            if (!map.has(sku)) map.set(sku, []);
+                            map.get(sku).push(row);
+                        }
+                        // Index by ASIN
+                        if (asin) {
+                            if (!map.has(asin)) map.set(asin, []);
+                            map.get(asin).push(row);
+                        }
+                    }
+                });
+                return map;
+            }, [data]);
+
+            // Check product status - MEMOIZED
+            const getProductStatus = useMemo(() => {
+                if (!referenceProducts.trim()) return [];
+                
                 const products = referenceProducts.split('\n')
                     .map(p => p.trim().toUpperCase())
                     .filter(p => p);
                 
                 return products.map(product => {
-                    const existing = data.filter(row => {
-                        if (referencePortfolio && getPortfolioName(row) !== referencePortfolio) return false;
-                        
-                        // Use the same logic as isInReferenceList for consistency
-                        if (row.Entity === 'Product Ad' || row.Entity === 'Product Targeting') {
-                            const sku = (row.SKU || '').toUpperCase();
-                            const asin = (row['ASIN (Informational only)'] || '').toUpperCase();
-                            const targeting = (row['Product Targeting Expression'] || '').toUpperCase();
-                            
-                            // Check if the product matches SKU, ASIN, or appears in targeting expression
-                            return sku === product || asin === product || targeting.includes(product);
-                        }
-                        
-                        return false;
-                    });
+                    // PERFORMANCE: Use pre-computed map for direct matches
+                    let existing = productDataMap.get(product) || [];
+                    
+                    // Also check for products in targeting expressions (still need to search for this)
+                    if (existing.length === 0) {
+                        existing = data.filter(row => {
+                            if (referencePortfolio && getPortfolioName(row) !== referencePortfolio) return false;
+                            if (row.Entity === 'Product Ad' || row.Entity === 'Product Targeting') {
+                                const targeting = (row['Product Targeting Expression'] || '').toUpperCase();
+                                return targeting.includes(product);
+                            }
+                            return false;
+                        });
+                    } else if (referencePortfolio) {
+                        existing = existing.filter(row => getPortfolioName(row) === referencePortfolio);
+                    }
                     
                     // Check if any products are paused vs enabled
                     const enabledProducts = existing.filter(e => (e.State || '').toLowerCase() === 'enabled');
@@ -2681,12 +2750,12 @@
                         locations: existing.map(e => ({
                             campaign: getCampaignName(e),
                             adGroup: getAdGroupName(e),
-                            type: e.Entity, // Add entity type so we know if it's Product Ad or Product Targeting
+                            type: e.Entity,
                             state: (e.State || '').toLowerCase()
                         }))
                     };
                 });
-            };
+            }, [referenceProducts, productDataMap, referencePortfolio, data]);
 
             // Get keywords for an ad group with root word analysis
             const getAdGroupKeywords = (adGroupId) => {
@@ -3853,7 +3922,7 @@
                                         
                                         {/* Keyword Status List */}
                                         {((useTableMode && keywordTableData.length > 0) || (!useTableMode && referenceKeywords.trim())) && (() => {
-                                            const allStatus = getKeywordStatus();
+                                            const allStatus = getKeywordStatus; // Now a memoized value, not a function
                                             const existingCount = allStatus.filter(s => s.exists).length;
                                             const newCount = allStatus.filter(s => !s.exists).length;
                                             
@@ -4646,7 +4715,7 @@
 
                                         {/* Product Status List */}
                                         {referenceProducts.trim() && (() => {
-                                            const allStatus = getProductStatus();
+                                            const allStatus = getProductStatus; // Now a memoized value
                                             const existingCount = allStatus.filter(s => s.exists).length;
                                             const newCount = allStatus.filter(s => !s.exists).length;
                                             
@@ -4915,6 +4984,15 @@
             const [keywordSearchTerms, setKeywordSearchTerms] = useState({});
             const [selectedKeywords, setSelectedKeywords] = useState({});
             
+            // PERFORMANCE: Limit visible rows for better rendering performance
+            const [visibleRowLimit, setVisibleRowLimit] = useState(100);
+            const ROW_INCREMENT = 100;
+            
+            // Reset visible limit when data changes significantly
+            useEffect(() => {
+                setVisibleRowLimit(100);
+            }, [activeTab]);
+            
             // PERFORMANCE: Pre-compute index map for O(1) lookups instead of O(n) indexOf
             const allDataIndexMap = useMemo(() => {
                 const map = new Map();
@@ -5168,16 +5246,29 @@
                 setAddKeywordForms(prev => ({ ...prev, [adGroupId + '_targets']: false }));
             };
 
-            const isRowNew = (row) => {
-                const rowId = getRowId(row);
-                return !originalRowMap.has(rowId);
-            };
+            // PERFORMANCE: Pre-compute row status (new/changed) for all visible rows
+            // This prevents recalculating during each row render
+            const rowStatusMap = useMemo(() => {
+                const statusMap = new Map();
+                data.slice(0, visibleRowLimit).forEach((row, index) => {
+                    const rowId = getRowId(row);
+                    const isNew = !originalRowMap.has(rowId);
+                    const original = originalRowMap.get(rowId);
+                    const isChanged = original && hasRowChanged(original, row);
+                    statusMap.set(index, { isNew, isChanged });
+                });
+                return statusMap;
+            }, [data, visibleRowLimit, originalRowMap]);
 
-            const isRowChanged = (row) => {
-                const rowId = getRowId(row);
-                const original = originalRowMap.get(rowId);
-                return original && hasRowChanged(original, row);
-            };
+            const isRowNew = useCallback((row, index) => {
+                const status = rowStatusMap.get(index);
+                return status ? status.isNew : false;
+            }, [rowStatusMap]);
+
+            const isRowChanged = useCallback((row, index) => {
+                const status = rowStatusMap.get(index);
+                return status ? status.isChanged : false;
+            }, [rowStatusMap]);
 
             const handleMouseDown = (e, column) => {
                 setResizing({ column, startX: e.pageX, startWidth: columnWidths[column] || 150 });
@@ -5553,14 +5644,18 @@
                                     </td>
                                 </tr>
                             ) : (
-                            data.map((row, index) => {
+                            <>
+                            {/* PERFORMANCE: Only render visible rows */}
+                            {data.slice(0, visibleRowLimit).map((row, index) => {
                                 const actualIndex = getActualIndex(row); // PERFORMANCE: O(1) lookup instead of O(n)
                                 const inReferenceList = isInReferenceList && isInReferenceList(row);
+                                const rowIsNew = isRowNew(row, index);
+                                const rowIsChanged = isRowChanged(row, index);
                                 const rowClasses = inReferenceList && showReferencePanel
                                     ? 'bg-orange-100 border-l-4 border-orange-400'
-                                    : isRowNew(row) 
+                                    : rowIsNew 
                                     ? 'new-row' 
-                                    : isRowChanged(row) 
+                                    : rowIsChanged 
                                     ? 'changed-row' 
                                     : '';
                                 
@@ -5598,11 +5693,11 @@
                                                     return (
                                                         <td key={col} className="px-3 py-2">
                                                             <span className={`px-2 py-1 text-xs rounded font-medium ${
-                                                                isRowNew(row) ? 'bg-green-100 text-green-800' :
-                                                                isRowChanged(row) ? 'bg-yellow-100 text-yellow-800' :
+                                                                rowIsNew ? 'bg-green-100 text-green-800' :
+                                                                rowIsChanged ? 'bg-yellow-100 text-yellow-800' :
                                                                 'bg-gray-100 text-gray-800'
                                                             }`}>
-                                                                {isRowNew(row) ? 'NEW' : isRowChanged(row) ? 'MODIFIED' : 'UNCHANGED'}
+                                                                {rowIsNew ? 'NEW' : rowIsChanged ? 'MODIFIED' : 'UNCHANGED'}
                                                             </span>
                                                         </td>
                                                     );
@@ -5614,10 +5709,10 @@
                                                             <button
                                                                 onClick={() => undoChange(row)}
                                                                 className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium hover:bg-red-200 flex items-center gap-1"
-                                                                title={isRowNew(row) ? "Remove this new item" : "Revert to original"}
+                                                                title={rowIsNew ? "Remove this new item" : "Revert to original"}
                                                             >
                                                                 <span>↶</span>
-                                                                <span>{isRowNew(row) ? 'Remove' : 'Undo'}</span>
+                                                                <span>{rowIsNew ? 'Remove' : 'Undo'}</span>
                                                             </button>
                                                         </td>
                                                     );
@@ -6143,7 +6238,24 @@
                                         })()}
                                     </React.Fragment>
                                 );
-                            })
+                            })}
+                            {/* Load More Button */}
+                            {data.length > visibleRowLimit && (
+                                <tr>
+                                    <td colSpan={columns.length + 1} className="px-4 py-3 text-center bg-gradient-to-r from-gray-50 to-white">
+                                        <button
+                                            onClick={() => setVisibleRowLimit(prev => prev + ROW_INCREMENT)}
+                                            className="px-6 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors text-sm font-medium shadow-sm"
+                                        >
+                                            Load More ({Math.min(ROW_INCREMENT, data.length - visibleRowLimit)} of {data.length - visibleRowLimit} remaining)
+                                        </button>
+                                        <span className="ml-3 text-xs text-gray-500">
+                                            Showing {Math.min(visibleRowLimit, data.length)} of {data.length} rows
+                                        </span>
+                                    </td>
+                                </tr>
+                            )}
+                            </>
                             )}
                         </tbody>
                     </table>
