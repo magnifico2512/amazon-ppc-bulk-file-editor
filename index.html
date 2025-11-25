@@ -1035,41 +1035,6 @@
                 return dataIndexMap.get(item) ?? -1;
             }, [dataIndexMap]);
             
-            // Keyboard shortcuts
-            useEffect(() => {
-                const handleKeyDown = (e) => {
-                    // Skip if typing in an input
-                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-                        return;
-                    }
-                    
-                    // Ctrl/Cmd + F: Focus search
-                    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-                        e.preventDefault();
-                        const searchInput = document.querySelector('input[placeholder*="Search"]');
-                        if (searchInput) searchInput.focus();
-                    }
-                    
-                    // Ctrl/Cmd + S: Export changes
-                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                        e.preventDefault();
-                        if (changes.length > 0) {
-                            exportChanges();
-                        }
-                    }
-                    
-                    // Escape: Close modals
-                    if (e.key === 'Escape') {
-                        setShowModal(false);
-                        setShowFindReplaceModal(false);
-                        setActiveFilterColumn(null);
-                    }
-                };
-                
-                document.addEventListener('keydown', handleKeyDown);
-                return () => document.removeEventListener('keydown', handleKeyDown);
-            }, [changes]);
-
 
             // ========================================
             // AUTO-SAVE SYSTEM - IndexedDB Utilities
@@ -1615,6 +1580,33 @@
                 
                 return changeList;
             }, [data, originalRowMap]);
+
+            // Keyboard shortcuts
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    // Skip if typing in an input
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                        return;
+                    }
+                    
+                    // Ctrl/Cmd + F: Focus search
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                        e.preventDefault();
+                        const searchInput = document.querySelector('input[placeholder*="Search"]');
+                        if (searchInput) searchInput.focus();
+                    }
+                    
+                    // Escape: Close modals
+                    if (e.key === 'Escape') {
+                        setShowModal(false);
+                        setShowFindReplaceModal(false);
+                        setActiveFilterColumn(null);
+                    }
+                };
+                
+                document.addEventListener('keydown', handleKeyDown);
+                return () => document.removeEventListener('keydown', handleKeyDown);
+            }, []);
 
             // Normalize column names and values to handle different capitalizations from Amazon exports
             const normalizeColumnNames = (data) => {
