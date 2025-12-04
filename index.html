@@ -3394,6 +3394,8 @@
                                                 showReferencePanel={showReferencePanel}
                                                 getAdGroupKeywords={getAdGroupKeywords}
                                                 undoChange={undoChange}
+                                                productTargetFilters={productTargetFilters}
+                                                setProductTargetFilters={setProductTargetFilters}
                                             />
                                         </div>
                                     ) : (
@@ -4977,7 +4979,9 @@
             isInReferenceList,
             showReferencePanel,
             getAdGroupKeywords,
-            undoChange
+            undoChange,
+            productTargetFilters,
+            setProductTargetFilters
         }) {
             const [resizing, setResizing] = useState(null);
             const [expandedAdGroups, setExpandedAdGroups] = useState(new Set());
