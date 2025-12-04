@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Amazon PPC Bulk Manager - Enhanced</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -1010,6 +1011,7 @@
             const [showExportTip, setShowExportTip] = useState(true);
             const [showBulkModeTip, setShowBulkModeTip] = useState(true);
             const [statusFilterValue, setStatusFilterValue] = useState('all'); // 'all', 'modified', 'new', 'unchanged'
+            const [productTargetFilters, setProductTargetFilters] = useState({}); // { adGroupId: { state: '', acos: '', clicks: '', search: '' } }
             
             // ========================================
             // LOADING & PERFORMANCE STATES
@@ -5492,7 +5494,9 @@
                             'Impressions',
                             'Clicks',
                             'Spend',
-                            'Sales'
+                            'Sales',
+                            'ACOS',
+                            'ROAS'
                         ];
                     
                     case 'products':
@@ -5506,7 +5510,9 @@
                             'Impressions',
                             'Clicks',
                             'Spend',
-                            'Sales'
+                            'Sales',
+                            'ACOS',
+                            'ROAS'
                         ];
                     
                     case 'keywords':
@@ -5522,7 +5528,8 @@
                             'Clicks',
                             'Spend',
                             'Sales',
-                            'ACOS'
+                            'ACOS',
+                            'ROAS'
                         ];
                     
                     case 'targeting':
@@ -5536,7 +5543,9 @@
                             'Impressions',
                             'Clicks',
                             'Spend',
-                            'Sales'
+                            'Sales',
+                            'ACOS',
+                            'ROAS'
                         ];
                     
                     case 'negative':
@@ -5835,6 +5844,7 @@
                                                                                     <th className="text-right pb-1">Orders</th>
                                                                                     <th className="text-right pb-1">Spend</th>
                                                                                     <th className="text-right pb-1">Sales</th>
+                                                                                    <th className="text-right pb-1">ACOS</th>
                                                                                     <th className="text-center pb-1">Actions</th>
                                                                                 </tr>
                                                                             </thead>
@@ -5848,7 +5858,9 @@
                                                                                     .map((kw, i) => {
                                                                                     const clicks = parseInt(kw.Clicks || 0);
                                                                                     const spend = parseNumber(kw.Spend);
+                                                                                    const sales = parseNumber(kw.Sales);
                                                                                     const cpc = clicks > 0 ? spend / clicks : 0;
+                                                                                    const acos = sales > 0 ? (spend / sales) * 100 : (spend > 0 ? Infinity : 0);
                                                                                     const inReferenceList = isInReferenceList && isInReferenceList(kw);
                                                                                     const isSelected = (selectedKeywords[adGroupId] || new Set()).has(kw['Keyword ID']);
                                                                                     
@@ -5883,6 +5895,15 @@
                                                                                         <td className="py-1 text-right">{parseInt(kw.Orders || 0)}</td>
                                                                                         <td className="py-1 text-right">${spend.toFixed(2)}</td>
                                                                                         <td className="py-1 text-right">${parseNumber(kw.Sales).toFixed(2)}</td>
+                                                                                        <td className={`py-1 text-right font-medium ${
+                                                                                            acos === 0 ? 'text-gray-400' :
+                                                                                            acos === Infinity ? 'text-red-600' :
+                                                                                            acos <= 25 ? 'text-green-600' :
+                                                                                            acos <= 50 ? 'text-yellow-600' :
+                                                                                            'text-red-600'
+                                                                                        }`}>
+                                                                                            {acos === 0 ? '-' : acos === Infinity ? '∞' : acos.toFixed(1) + '%'}
+                                                                                        </td>
                                                                                         <td className="py-1 text-center">
                                                                                             <div className="flex gap-1 justify-center">
                                                                                                 {kw.State !== 'enabled' && (
@@ -6029,8 +6050,132 @@
                                                                 <h4 className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-2">
                                                                     🎯 Product Targets ({productTargets.length})
                                                                 </h4>
+                                                                
+                                                                {/* Filter Controls for Product Targets */}
+                                                                {productTargets.length > 0 && (
+                                                                <div className="mb-2 p-2 bg-gray-50 rounded-lg border border-gray-200">
+                                                                    <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                                                                        <span className="font-medium text-gray-700">Filters:</span>
+                                                                        <select
+                                                                            className="px-2 py-1 border border-gray-300 rounded text-[10px] bg-white"
+                                                                            value={(productTargetFilters[adGroupId] || {}).state || ''}
+                                                                            onChange={(e) => setProductTargetFilters(prev => ({
+                                                                                ...prev,
+                                                                                [adGroupId]: { ...(prev[adGroupId] || {}), state: e.target.value }
+                                                                            }))}
+                                                                        >
+                                                                            <option value="">All States</option>
+                                                                            <option value="enabled">Enabled</option>
+                                                                            <option value="paused">Paused</option>
+                                                                            <option value="archived">Archived</option>
+                                                                        </select>
+                                                                        <select
+                                                                            className="px-2 py-1 border border-gray-300 rounded text-[10px] bg-white"
+                                                                            value={(productTargetFilters[adGroupId] || {}).acos || ''}
+                                                                            onChange={(e) => setProductTargetFilters(prev => ({
+                                                                                ...prev,
+                                                                                [adGroupId]: { ...(prev[adGroupId] || {}), acos: e.target.value }
+                                                                            }))}
+                                                                        >
+                                                                            <option value="">All ACOS</option>
+                                                                            <option value="0-20">ACOS 0-20%</option>
+                                                                            <option value="20-40">ACOS 20-40%</option>
+                                                                            <option value="40-60">ACOS 40-60%</option>
+                                                                            <option value="60-100">ACOS 60-100%</option>
+                                                                            <option value="100+">ACOS 100%+</option>
+                                                                            <option value="no-sales">No Sales</option>
+                                                                        </select>
+                                                                        <select
+                                                                            className="px-2 py-1 border border-gray-300 rounded text-[10px] bg-white"
+                                                                            value={(productTargetFilters[adGroupId] || {}).clicks || ''}
+                                                                            onChange={(e) => setProductTargetFilters(prev => ({
+                                                                                ...prev,
+                                                                                [adGroupId]: { ...(prev[adGroupId] || {}), clicks: e.target.value }
+                                                                            }))}
+                                                                        >
+                                                                            <option value="">All Clicks</option>
+                                                                            <option value="0">0 Clicks</option>
+                                                                            <option value="1-10">1-10 Clicks</option>
+                                                                            <option value="10-50">10-50 Clicks</option>
+                                                                            <option value="50+">50+ Clicks</option>
+                                                                        </select>
+                                                                        <input
+                                                                            type="text"
+                                                                            placeholder="Search ASIN..."
+                                                                            className="px-2 py-1 border border-gray-300 rounded text-[10px] w-28"
+                                                                            value={(productTargetFilters[adGroupId] || {}).search || ''}
+                                                                            onChange={(e) => setProductTargetFilters(prev => ({
+                                                                                ...prev,
+                                                                                [adGroupId]: { ...(prev[adGroupId] || {}), search: e.target.value }
+                                                                            }))}
+                                                                        />
+                                                                        {((productTargetFilters[adGroupId] || {}).state || 
+                                                                          (productTargetFilters[adGroupId] || {}).acos || 
+                                                                          (productTargetFilters[adGroupId] || {}).clicks || 
+                                                                          (productTargetFilters[adGroupId] || {}).search) && (
+                                                                            <button
+                                                                                onClick={() => setProductTargetFilters(prev => ({
+                                                                                    ...prev,
+                                                                                    [adGroupId]: {}
+                                                                                }))}
+                                                                                className="px-2 py-1 text-[10px] text-red-600 hover:bg-red-50 rounded"
+                                                                            >
+                                                                                Clear
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                )}
+                                                                
                                                                 <div className="bg-white border rounded-lg p-3 max-h-60 overflow-y-auto text-xs">
                                                                     {productTargets.length > 0 ? (
+                                                                        (() => {
+                                                                            const filters = productTargetFilters[adGroupId] || {};
+                                                                            const filteredTargets = productTargets.filter(pt => {
+                                                                                const clicks = parseInt(pt.Clicks || 0);
+                                                                                const spend = parseNumber(pt.Spend);
+                                                                                const sales = parseNumber(pt.Sales);
+                                                                                const acos = sales > 0 ? (spend / sales) * 100 : (spend > 0 ? Infinity : 0);
+                                                                                
+                                                                                // State filter
+                                                                                if (filters.state && pt.State !== filters.state) return false;
+                                                                                
+                                                                                // ACOS filter
+                                                                                if (filters.acos) {
+                                                                                    if (filters.acos === 'no-sales' && sales > 0) return false;
+                                                                                    if (filters.acos === '0-20' && (acos < 0 || acos > 20 || acos === Infinity)) return false;
+                                                                                    if (filters.acos === '20-40' && (acos < 20 || acos > 40 || acos === Infinity)) return false;
+                                                                                    if (filters.acos === '40-60' && (acos < 40 || acos > 60 || acos === Infinity)) return false;
+                                                                                    if (filters.acos === '60-100' && (acos < 60 || acos > 100 || acos === Infinity)) return false;
+                                                                                    if (filters.acos === '100+' && acos <= 100 && acos !== Infinity) return false;
+                                                                                }
+                                                                                
+                                                                                // Clicks filter
+                                                                                if (filters.clicks) {
+                                                                                    if (filters.clicks === '0' && clicks !== 0) return false;
+                                                                                    if (filters.clicks === '1-10' && (clicks < 1 || clicks > 10)) return false;
+                                                                                    if (filters.clicks === '10-50' && (clicks < 10 || clicks > 50)) return false;
+                                                                                    if (filters.clicks === '50+' && clicks < 50) return false;
+                                                                                }
+                                                                                
+                                                                                // Search filter
+                                                                                if (filters.search) {
+                                                                                    const expr = (pt['Product Targeting Expression'] || '').toLowerCase();
+                                                                                    if (!expr.includes(filters.search.toLowerCase())) return false;
+                                                                                }
+                                                                                
+                                                                                return true;
+                                                                            });
+                                                                            
+                                                                            if (filteredTargets.length === 0) {
+                                                                                return (
+                                                                                    <div className="text-gray-500 text-center py-4">
+                                                                                        No targets match filters ({productTargets.length} total)
+                                                                                    </div>
+                                                                                );
+                                                                            }
+                                                                            
+                                                                            return (
                                                                         <table className="w-full">
                                                                             <thead className="text-[10px] text-gray-600 border-b">
                                                                                 <tr>
@@ -6041,18 +6186,21 @@
                                                                                     <th className="text-right pb-1">Clicks</th>
                                                                                     <th className="text-right pb-1">Spend</th>
                                                                                     <th className="text-right pb-1">Sales</th>
+                                                                                    <th className="text-right pb-1">ACOS</th>
                                                                                     <th className="text-center pb-1">Actions</th>
                                                                                 </tr>
                                                                             </thead>
                                                                             <tbody>
-                                                                                {productTargets.map((pt, i) => {
+                                                                                {filteredTargets.map((pt, i) => {
                                                                                     const clicks = parseInt(pt.Clicks || 0);
                                                                                     const spend = parseNumber(pt.Spend);
+                                                                                    const sales = parseNumber(pt.Sales);
                                                                                     const cpc = clicks > 0 ? spend / clicks : 0;
+                                                                                    const acos = sales > 0 ? (spend / sales) * 100 : (spend > 0 ? Infinity : 0);
                                                                                     const inReferenceList = isInReferenceList && isInReferenceList(pt);
                                                                                     
                                                                                     return (
-                                                                                    <tr key={i} className={`border-b last:border-0 ${
+                                                                                    <tr key={i} className={`border-b last:border-0 target-row ${
                                                                                         inReferenceList && showReferencePanel ? 'bg-orange-100' : ''
                                                                                     }`}>
                                                                                         <td className="py-1 max-w-[200px] truncate" title={pt['Product Targeting Expression']}>
@@ -6071,7 +6219,16 @@
                                                                                         <td className="py-1 text-right">${cpc.toFixed(2)}</td>
                                                                                         <td className="py-1 text-right">{clicks}</td>
                                                                                         <td className="py-1 text-right">${spend.toFixed(2)}</td>
-                                                                                        <td className="py-1 text-right">${parseNumber(pt.Sales).toFixed(2)}</td>
+                                                                                        <td className="py-1 text-right">${sales.toFixed(2)}</td>
+                                                                                        <td className={`py-1 text-right font-medium ${
+                                                                                            acos === 0 ? 'text-gray-400' :
+                                                                                            acos === Infinity ? 'text-red-600' :
+                                                                                            acos <= 25 ? 'text-green-600' :
+                                                                                            acos <= 50 ? 'text-yellow-600' :
+                                                                                            'text-red-600'
+                                                                                        }`}>
+                                                                                            {acos === 0 ? '-' : acos === Infinity ? '∞' : acos.toFixed(1) + '%'}
+                                                                                        </td>
                                                                                         <td className="py-1 text-center">
                                                                                             <div className="flex gap-1 justify-center">
                                                                                                 {pt.State !== 'enabled' && (
@@ -6113,9 +6270,11 @@
                                                                                 })}
                                                                             </tbody>
                                                                         </table>
+                                                                            );
+                                                                        })()
                                                                     ) : (
                                                                         <div className="text-gray-500 text-center py-4">No product targets found</div>
-                                                                    )}
+                                                                    )}}
                                                                 </div>
                                                                 
                                                                 {/* Add Product Targets Form */}
@@ -6296,7 +6455,9 @@
                 productTargetBid: '',
                 topOfSearchMod: '',
                 restOfSearchMod: '',
-                productPagesMod: ''
+                productPagesMod: '',
+                negativeKeywords: '',
+                negativeMatchType: 'Negative exact'
             });
 
             const campaigns = data.filter(r => r.Entity === 'Campaign');
@@ -6771,7 +6932,9 @@
                     productTargetBid: '',
                     topOfSearchMod: '',
                     restOfSearchMod: '',
-                    productPagesMod: ''
+                    productPagesMod: '',
+                    negativeKeywords: '',
+                    negativeMatchType: 'Negative exact'
                 }]);
             };
 
@@ -6925,6 +7088,22 @@
                                     }));
                                 });
                             }
+
+                            // Add Negative Keywords
+                            if (singleKeywordTemplate.negativeKeywords) {
+                                const negKeywords = singleKeywordTemplate.negativeKeywords.split('\n').map(k => k.trim()).filter(k => k);
+                                negKeywords.forEach(negKeyword => {
+                                    newItems.push(createRow('Negative Keyword', {
+                                        'Campaign ID': campaignId,
+                                        'Campaign Name (Informational only)': campaignName,
+                                        'Ad Group ID': adGroupId,
+                                        'Ad Group Name (Informational only)': adGroupName,
+                                        'Keyword Text': negKeyword,
+                                        'Match Type': singleKeywordTemplate.negativeMatchType || 'Negative exact',
+                                        'Portfolio Name (Informational only)': singleKeywordTemplate.portfolioName || ''
+                                    }));
+                                });
+                            }
                         }
                     });
 
@@ -6949,7 +7128,9 @@
                             productTargetBid: '',
                             topOfSearchMod: '',
                             restOfSearchMod: '',
-                            productPagesMod: ''
+                            productPagesMod: '',
+                            negativeKeywords: '',
+                            negativeMatchType: 'Negative exact'
                         });
                     }
                     return;
@@ -7074,6 +7255,22 @@
                                     'Ad Group Name (Informational only)': camp.adGroupName,
                                     'Product Targeting Expression': formattedExpression,
                                     'Bid': camp.productTargetBid || camp.defaultBid || '',
+                                    'Portfolio Name (Informational only)': camp.portfolioName || ''
+                                }));
+                            });
+                        }
+
+                        // Add Negative Keywords
+                        if (camp.negativeKeywords) {
+                            const negKeywords = camp.negativeKeywords.split('\n').map(k => k.trim()).filter(k => k);
+                            negKeywords.forEach(negKeyword => {
+                                newItems.push(createRow('Negative Keyword', {
+                                    'Campaign ID': campaignId,
+                                    'Campaign Name (Informational only)': camp.campaignName,
+                                    'Ad Group ID': adGroupId,
+                                    'Ad Group Name (Informational only)': camp.adGroupName,
+                                    'Keyword Text': negKeyword,
+                                    'Match Type': camp.negativeMatchType || 'Negative exact',
                                     'Portfolio Name (Informational only)': camp.portfolioName || ''
                                 }));
                             });
@@ -7296,6 +7493,22 @@
                                     Bid: formData.productTargetBid || ''
                                 });
                                 newItems.push(productTarget);
+                            });
+                        }
+
+                        // Add negative keywords if provided
+                        if (formData.negativeKeywords) {
+                            const negKeywords = formData.negativeKeywords.split('\n').map(k => k.trim()).filter(Boolean);
+                            negKeywords.forEach(negKeyword => {
+                                const negKw = createRow('Negative Keyword', {
+                                    'Campaign ID': campaignId,
+                                    'Campaign Name': formData.name,
+                                    'Ad Group ID': adGroupId,
+                                    'Ad Group Name': formData.adGroupName,
+                                    'Keyword Text': negKeyword,
+                                    'Match Type': formData.negativeMatchType || 'Negative exact'
+                                });
+                                newItems.push(negKw);
                             });
                         }
                     }
@@ -7675,6 +7888,33 @@
                                             </div>
                                         </details>
 
+                                        <details className="bg-gray-50 p-3 rounded">
+                                            <summary className="cursor-pointer text-sm font-medium text-gray-700">Optional: Negative Keywords</summary>
+                                            <div className="mt-3 space-y-2">
+                                                <div className="grid grid-cols-3 gap-3">
+                                                    <div className="col-span-2">
+                                                        <label className="block text-xs text-gray-700 mb-1">Negative Match Type</label>
+                                                        <select
+                                                            value={singleKeywordTemplate.negativeMatchType}
+                                                            onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, negativeMatchType: e.target.value})}
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                        >
+                                                            <option value="Negative exact">Negative Exact</option>
+                                                            <option value="Negative phrase">Negative Phrase</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <textarea
+                                                    value={singleKeywordTemplate.negativeKeywords}
+                                                    onChange={(e) => setSingleKeywordTemplate({...singleKeywordTemplate, negativeKeywords: e.target.value})}
+                                                    placeholder="Enter negative keywords (one per line)&#10;competitor brand&#10;cheap&#10;free"
+                                                    rows="4"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                                />
+                                                <p className="text-xs text-gray-600">These negative keywords will be added to all campaigns created</p>
+                                            </div>
+                                        </details>
+
                                         <div className="flex gap-3 pt-3">
                                             <button
                                                 onClick={createBulkCampaigns}
@@ -7905,76 +8145,82 @@
 
                                 {/* Draft Campaigns Section */}
                                 {bulkCampaigns.length > 0 && !singleKeywordMode && (
-                                    <h4 className="text-sm font-semibold text-gray-700 mb-2">📝 Draft Campaigns ({bulkCampaigns.length})</h4>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h4 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+                                            <span className="text-xl">📝</span> Draft Campaigns 
+                                            <span className="ml-2 px-2.5 py-0.5 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                                                {bulkCampaigns.length}
+                                            </span>
+                                        </h4>
+                                        <span className="text-xs text-gray-500">Expand cards for advanced options</span>
+                                    </div>
                                 )}
 
                                 {bulkCampaigns.length === 0 && createdCampaigns.length === 0 && !singleKeywordMode && (
-                                    <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                                        <p className="text-sm">No campaigns yet. Click "➕ Add Row" below to start building campaigns.</p>
+                                    <div className="text-center py-12 text-gray-500 bg-gradient-to-br from-gray-50 to-blue-50 rounded-xl border-2 border-dashed border-gray-300">
+                                        <div className="text-4xl mb-3">📦</div>
+                                        <p className="text-base font-medium text-gray-600">No campaigns yet</p>
+                                        <p className="text-sm text-gray-500 mt-1">Click "Add New Campaign" below to start building</p>
                                     </div>
                                 )}
 
                                 {bulkCampaigns.length === 0 && createdCampaigns.length > 0 && !singleKeywordMode && (
-                                    <div className="text-center py-6 text-green-700 bg-green-50 rounded-lg border border-green-200">
-                                        <p className="text-sm font-medium">✓ No draft campaigns - ready to create more!</p>
-                                        <p className="text-xs mt-1">Click "➕ Add Row" below to build new campaigns, or duplicate your newly created ones above.</p>
+                                    <div className="text-center py-10 text-green-700 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-200">
+                                        <div className="text-4xl mb-3">✅</div>
+                                        <p className="text-base font-medium">All campaigns created successfully!</p>
+                                        <p className="text-sm text-green-600 mt-1">Click "Add New Campaign" to build more, or duplicate from your newly created ones above.</p>
                                     </div>
                                 )}
 
                                 {bulkCampaigns.length > 0 && !singleKeywordMode && (
-                                <div className="overflow-x-auto max-h-[60vh] border rounded-lg">
-                                    <table className="w-full text-xs">
-                                        <thead className="bg-gray-100 sticky top-0">
-                                            <tr>
-                                                <th className="px-2 py-2 text-left font-medium w-8">#</th>
-                                                <th className="px-2 py-2 text-left font-medium min-w-[150px]">Campaign Name *</th>
-                                                <th className="px-2 py-2 text-left font-medium min-w-[120px]">Portfolio</th>
-                                                <th className="px-2 py-2 text-left font-medium w-24">Budget</th>
-                                                <th className="px-2 py-2 text-left font-medium w-24">Targeting</th>
-                                                <th className="px-2 py-2 text-left font-medium min-w-[140px]">Bidding Strategy</th>
-                                                <th className="px-2 py-2 text-left font-medium min-w-[150px]">Ad Group Name</th>
-                                                <th className="px-2 py-2 text-left font-medium w-20">Default Bid</th>
-                                                <th className="px-2 py-2 text-left font-medium min-w-[120px]">
-                                                    <div className="flex items-center gap-1">
-                                                        Products (SKUs)
-                                                        <span className="text-orange-600 text-[10px]" title="Duplicates will be highlighted">⚠️</span>
-                                                    </div>
-                                                </th>
-                                                <th className="px-2 py-2 text-left font-medium min-w-[120px]">
-                                                    <div className="flex items-center gap-1">
-                                                        Keywords
-                                                        <span className="text-orange-600 text-[10px]" title="Duplicates will be highlighted">⚠️</span>
-                                                    </div>
-                                                </th>
-                                                <th className="px-2 py-2 text-left font-medium w-24">Match Type</th>
-                                                <th className="px-2 py-2 text-left font-medium w-20">KW Bid</th>
-                                                <th className="px-2 py-2 text-left font-medium min-w-[120px]">Product Targets (ASINs)</th>
-                                                <th className="px-2 py-2 text-left font-medium w-24">Target Type</th>
-                                                <th className="px-2 py-2 text-left font-medium w-20">PT Bid</th>
-                                                <th className="px-2 py-2 text-left font-medium w-24">Top of Search %</th>
-                                                <th className="px-2 py-2 text-left font-medium w-24">Rest of Search %</th>
-                                                <th className="px-2 py-2 text-left font-medium w-24">Product Pages %</th>
-                                                <th className="px-2 py-2 text-left font-medium w-24">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {bulkCampaigns.map((camp, index) => {
-                                                const keywordDuplicates = checkDuplicates(camp.keywords, 'keywords');
-                                                const productDuplicates = checkDuplicates(camp.products, 'products');
-                                                
-                                                return (
-                                                <tr key={camp.id} className="border-t hover:bg-gray-50">
-                                                    <td className="px-2 py-2 text-gray-600">{index + 1}</td>
-                                                    <td className="px-2 py-2">
+                                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                                    {bulkCampaigns.map((camp, index) => {
+                                        const keywordDuplicates = checkDuplicates(camp.keywords, 'keywords');
+                                        const productDuplicates = checkDuplicates(camp.products, 'products');
+                                        
+                                        return (
+                                        <div key={camp.id} className="bg-white border-2 border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                                            {/* Card Header */}
+                                            <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-gray-50 to-gray-100 border-b rounded-t-xl">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-full text-sm font-bold">
+                                                        {index + 1}
+                                                    </span>
+                                                    <div className="flex-1 min-w-0">
                                                         <input
                                                             type="text"
                                                             value={camp.campaignName}
                                                             onChange={(e) => updateBulkCampaign(index, 'campaignName', e.target.value)}
-                                                            placeholder="Campaign name"
-                                                            className="w-full px-2 py-1 border rounded text-xs"
+                                                            placeholder="Enter Campaign Name *"
+                                                            className="w-full text-base font-semibold bg-transparent border-0 border-b-2 border-transparent hover:border-gray-300 focus:border-blue-500 focus:ring-0 px-0 py-1 transition-colors"
+                                                            style={{minWidth: '400px'}}
                                                         />
-                                                    </td>
-                                                    <td className="px-2 py-2">
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={() => duplicateBulkCampaign(index)}
+                                                        className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg flex items-center gap-1 transition-colors"
+                                                        title="Duplicate Campaign"
+                                                    >
+                                                        📋 Duplicate
+                                                    </button>
+                                                    <button
+                                                        onClick={() => removeBulkCampaign(index)}
+                                                        className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-1 transition-colors"
+                                                        title="Remove Campaign"
+                                                    >
+                                                        🗑️ Remove
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Card Body */}
+                                            <div className="p-4 space-y-4">
+                                                {/* Row 1: Campaign Settings */}
+                                                <div className="grid grid-cols-5 gap-4">
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Portfolio</label>
                                                         <input
                                                             type="text"
                                                             value={camp.portfolioName}
@@ -7987,243 +8233,322 @@
                                                                 setBulkCampaigns(newCampaigns);
                                                             }}
                                                             list={`portfolio-list-${index}`}
-                                                            placeholder="Portfolio name"
-                                                            className="w-full px-2 py-1 border rounded text-xs"
+                                                            placeholder="Select portfolio..."
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                                         />
                                                         {portfolios.length > 0 && (
                                                             <datalist id={`portfolio-list-${index}`}>
                                                                 {portfolios.map(p => <option key={p} value={p} />)}
                                                             </datalist>
                                                         )}
-                                                    </td>
-                                                    <td className="px-2 py-2">
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Daily Budget</label>
                                                         <input
                                                             type="text"
                                                             value={camp.dailyBudget}
                                                             onChange={(e) => updateBulkCampaign(index, 'dailyBudget', e.target.value)}
                                                             placeholder="10.00"
-                                                            className="w-full px-2 py-1 border rounded text-xs"
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                                         />
-                                                    </td>
-                                                    <td className="px-2 py-2">
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Targeting</label>
                                                         <select
                                                             value={camp.targetingType}
                                                             onChange={(e) => updateBulkCampaign(index, 'targetingType', e.target.value)}
-                                                            className="w-full px-2 py-1 border rounded text-xs"
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                                                         >
                                                             <option value="Manual">Manual</option>
                                                             <option value="Auto">Auto</option>
                                                         </select>
-                                                    </td>
-                                                    <td className="px-2 py-2">
+                                                    </div>
+                                                    <div className="col-span-2">
+                                                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Bidding Strategy</label>
                                                         <select
                                                             value={camp.biddingStrategy}
                                                             onChange={(e) => updateBulkCampaign(index, 'biddingStrategy', e.target.value)}
-                                                            className="w-full px-2 py-1 border rounded text-xs"
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                                                         >
-                                                            <option value="Dynamic bids - down only">Dynamic - down only</option>
-                                                            <option value="Dynamic bids - up and down">Dynamic - up and down</option>
+                                                            <option value="Dynamic bids - down only">Dynamic bids - down only</option>
+                                                            <option value="Dynamic bids - up and down">Dynamic bids - up and down</option>
                                                             <option value="Fixed bid">Fixed bid</option>
                                                         </select>
-                                                    </td>
-                                                    <td className="px-2 py-2">
+                                                    </div>
+                                                </div>
+
+                                                {/* Row 2: Ad Group Settings */}
+                                                <div className="grid grid-cols-3 gap-4 pt-2 border-t border-gray-100">
+                                                    <div className="col-span-2">
+                                                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Ad Group Name</label>
                                                         <input
                                                             type="text"
                                                             value={camp.adGroupName}
                                                             onChange={(e) => updateBulkCampaign(index, 'adGroupName', e.target.value)}
-                                                            placeholder="Ad group name"
-                                                            className="w-full px-2 py-1 border rounded text-xs"
+                                                            placeholder="Enter ad group name..."
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                                         />
-                                                    </td>
-                                                    <td className="px-2 py-2">
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Default Bid</label>
                                                         <input
                                                             type="text"
                                                             value={camp.defaultBid}
                                                             onChange={(e) => updateBulkCampaign(index, 'defaultBid', e.target.value)}
                                                             placeholder="0.50"
-                                                            className="w-full px-2 py-1 border rounded text-xs"
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                                         />
-                                                    </td>
-                                                    <td className="px-2 py-2">
+                                                    </div>
+                                                </div>
+
+                                                {/* Row 3: Products & Keywords - Side by Side with Large Textareas */}
+                                                <div className="grid grid-cols-2 gap-6 pt-2 border-t border-gray-100">
+                                                    {/* Products (SKUs) */}
+                                                    <div>
+                                                        <div className="flex items-center justify-between mb-1.5">
+                                                            <label className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                                                                📦 Products (SKUs)
+                                                                {productDuplicates.length > 0 && (
+                                                                    <span className="text-orange-600">⚠️</span>
+                                                                )}
+                                                            </label>
+                                                            <span className="text-xs text-gray-400">
+                                                                {camp.products.split('\n').filter(s => s.trim()).length} items
+                                                            </span>
+                                                        </div>
                                                         <div className="relative">
                                                             <textarea
                                                                 value={camp.products}
                                                                 onChange={(e) => updateBulkCampaign(index, 'products', e.target.value)}
-                                                                placeholder="SKU1&#10;SKU2"
-                                                                rows="2"
-                                                                className={`w-full px-2 py-1 border rounded text-xs ${
-                                                                    productDuplicates.length > 0 ? 'border-orange-400 bg-orange-50' : ''
+                                                                placeholder="Enter SKUs (one per line)&#10;SKU1&#10;SKU2&#10;SKU3"
+                                                                rows="6"
+                                                                className={`w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y ${
+                                                                    productDuplicates.length > 0 ? 'border-orange-400 bg-orange-50' : 'border-gray-300'
                                                                 }`}
+                                                                style={{minHeight: '120px'}}
                                                             />
-                                                            {productDuplicates.length > 0 && (
-                                                                <div className="absolute top-0 right-0 mt-1 mr-1">
-                                                                    <span 
-                                                                        className="text-orange-600 cursor-help text-xs"
-                                                                        title={`Duplicates found:\n${productDuplicates.map(d => `${d.text} → ${d.campaign} / ${d.adGroup}`).join('\n')}`}
-                                                                    >
-                                                                        ⚠️
-                                                                    </span>
-                                                                </div>
-                                                            )}
                                                         </div>
                                                         {productDuplicates.length > 0 && (
-                                                            <div className="mt-1 text-[10px] text-orange-700 font-medium">
-                                                                {productDuplicates.length} duplicate{productDuplicates.length > 1 ? 's' : ''} found
+                                                            <div className="mt-1.5 px-2 py-1 bg-orange-100 rounded text-xs text-orange-700 font-medium">
+                                                                ⚠️ {productDuplicates.length} duplicate{productDuplicates.length > 1 ? 's' : ''} found
+                                                                <span 
+                                                                    className="ml-1 cursor-help underline decoration-dotted"
+                                                                    title={productDuplicates.map(d => `${d.text} → ${d.campaign} / ${d.adGroup}`).join('\n')}
+                                                                >
+                                                                    (hover for details)
+                                                                </span>
                                                             </div>
                                                         )}
-                                                    </td>
-                                                    <td className="px-2 py-2">
+                                                    </div>
+
+                                                    {/* Keywords */}
+                                                    <div>
+                                                        <div className="flex items-center justify-between mb-1.5">
+                                                            <label className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                                                                🔑 Keywords
+                                                                {keywordDuplicates.length > 0 && (
+                                                                    <span className="text-orange-600">⚠️</span>
+                                                                )}
+                                                            </label>
+                                                            <span className="text-xs text-gray-400">
+                                                                {camp.keywords.split('\n').filter(s => s.trim()).length} items
+                                                            </span>
+                                                        </div>
                                                         <div className="relative">
                                                             <textarea
                                                                 value={camp.keywords}
                                                                 onChange={(e) => updateBulkCampaign(index, 'keywords', e.target.value)}
-                                                                placeholder="keyword1&#10;keyword2"
-                                                                rows="2"
-                                                                className={`w-full px-2 py-1 border rounded text-xs ${
-                                                                    keywordDuplicates.length > 0 ? 'border-orange-400 bg-orange-50' : ''
+                                                                placeholder="Enter keywords (one per line)&#10;keyword one&#10;keyword two&#10;keyword three"
+                                                                rows="6"
+                                                                className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y ${
+                                                                    keywordDuplicates.length > 0 ? 'border-orange-400 bg-orange-50' : 'border-gray-300'
                                                                 }`}
+                                                                style={{minHeight: '120px'}}
                                                             />
-                                                            {keywordDuplicates.length > 0 && (
-                                                                <div className="absolute top-0 right-0 mt-1 mr-1">
-                                                                    <span 
-                                                                        className="text-orange-600 cursor-help text-xs"
-                                                                        title={`Duplicates found:\n${keywordDuplicates.map(d => `${d.text} (${d.matchType}) → ${d.campaign} / ${d.adGroup}`).join('\n')}`}
-                                                                    >
-                                                                        ⚠️
-                                                                    </span>
-                                                                </div>
-                                                            )}
                                                         </div>
                                                         {keywordDuplicates.length > 0 && (
-                                                            <div className="mt-1 text-[10px] text-orange-700 font-medium">
-                                                                {keywordDuplicates.length} duplicate{keywordDuplicates.length > 1 ? 's' : ''} found
+                                                            <div className="mt-1.5 px-2 py-1 bg-orange-100 rounded text-xs text-orange-700 font-medium">
+                                                                ⚠️ {keywordDuplicates.length} duplicate{keywordDuplicates.length > 1 ? 's' : ''} found
+                                                                <span 
+                                                                    className="ml-1 cursor-help underline decoration-dotted"
+                                                                    title={keywordDuplicates.map(d => `${d.text} (${d.matchType}) → ${d.campaign} / ${d.adGroup}`).join('\n')}
+                                                                >
+                                                                    (hover for details)
+                                                                </span>
                                                             </div>
                                                         )}
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <select
-                                                            value={camp.matchType}
-                                                            onChange={(e) => updateBulkCampaign(index, 'matchType', e.target.value)}
-                                                            className="w-full px-2 py-1 border rounded text-xs"
-                                                        >
-                                                            <option value="Broad">Broad</option>
-                                                            <option value="Phrase">Phrase</option>
-                                                            <option value="Exact">Exact</option>
-                                                        </select>
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="text"
-                                                            value={camp.keywordBid}
-                                                            onChange={(e) => updateBulkCampaign(index, 'keywordBid', e.target.value)}
-                                                            placeholder="0.50"
-                                                            className="w-full px-2 py-1 border rounded text-xs"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <textarea
-                                                            value={camp.productTargets || ''}
-                                                            onChange={(e) => updateBulkCampaign(index, 'productTargets', e.target.value)}
-                                                            placeholder="B0CL21ZDS3"
-                                                            className="w-full px-2 py-1 border rounded text-xs font-mono"
-                                                            rows="2"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <select
-                                                            value={camp.targetingMethod || 'asin'}
-                                                            onChange={(e) => updateBulkCampaign(index, 'targetingMethod', e.target.value)}
-                                                            className="w-full px-2 py-1 border rounded text-xs"
-                                                        >
-                                                            <option value="asin">ASIN</option>
-                                                            <option value="asin-expanded">ASIN-Exp</option>
-                                                            <option value="category">Category</option>
-                                                        </select>
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="text"
-                                                            value={camp.productTargetBid || ''}
-                                                            onChange={(e) => updateBulkCampaign(index, 'productTargetBid', e.target.value)}
-                                                            placeholder="0.50"
-                                                            className="w-full px-2 py-1 border rounded text-xs"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="text"
-                                                            value={camp.topOfSearchMod || ''}
-                                                            onChange={(e) => updateBulkCampaign(index, 'topOfSearchMod', e.target.value)}
-                                                            placeholder="0"
-                                                            className="w-full px-2 py-1 border rounded text-xs"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="text"
-                                                            value={camp.restOfSearchMod || ''}
-                                                            onChange={(e) => updateBulkCampaign(index, 'restOfSearchMod', e.target.value)}
-                                                            placeholder="0"
-                                                            className="w-full px-2 py-1 border rounded text-xs"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="text"
-                                                            value={camp.productPagesMod || ''}
-                                                            onChange={(e) => updateBulkCampaign(index, 'productPagesMod', e.target.value)}
-                                                            placeholder="0"
-                                                            className="w-full px-2 py-1 border rounded text-xs"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <div className="flex gap-1">
-                                                            <button
-                                                                onClick={() => duplicateBulkCampaign(index)}
-                                                                className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                                                                title="Duplicate"
-                                                            >
-                                                                📋
-                                                            </button>
-                                                            <button
-                                                                onClick={() => removeBulkCampaign(index)}
-                                                                className="p-1 text-red-600 hover:bg-red-50 rounded"
-                                                                title="Remove"
-                                                            >
-                                                                🗑️
-                                                            </button>
+                                                        {/* Match Type & Bid inline */}
+                                                        <div className="grid grid-cols-2 gap-3 mt-3">
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Match Type</label>
+                                                                <select
+                                                                    value={camp.matchType}
+                                                                    onChange={(e) => updateBulkCampaign(index, 'matchType', e.target.value)}
+                                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                                                >
+                                                                    <option value="Broad">Broad</option>
+                                                                    <option value="Phrase">Phrase</option>
+                                                                    <option value="Exact">Exact</option>
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Keyword Bid</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={camp.keywordBid}
+                                                                    onChange={(e) => updateBulkCampaign(index, 'keywordBid', e.target.value)}
+                                                                    placeholder="0.50"
+                                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                                />
+                                                            </div>
                                                         </div>
-                                                    </td>
-                                                </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
+                                                    </div>
+                                                </div>
+
+                                                {/* Collapsible: Product Targeting & Bid Modifiers */}
+                                                <details className="pt-2 border-t border-gray-100">
+                                                    <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-blue-600 flex items-center gap-2 py-2">
+                                                        <span className="text-gray-400">▶</span>
+                                                        Advanced Options (Product Targeting, Bid Modifiers & Negative Keywords)
+                                                    </summary>
+                                                    <div className="pt-3 space-y-4">
+                                                        {/* Product Targets */}
+                                                        <div className="grid grid-cols-3 gap-4">
+                                                            <div className="col-span-2">
+                                                                <label className="block text-xs font-medium text-gray-600 mb-1.5">🎯 Product Targets (ASINs)</label>
+                                                                <textarea
+                                                                    value={camp.productTargets || ''}
+                                                                    onChange={(e) => updateBulkCampaign(index, 'productTargets', e.target.value)}
+                                                                    placeholder="Enter ASINs (one per line)&#10;B0CL21ZDS3&#10;B09ABCDEF1"
+                                                                    rows="4"
+                                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+                                                                />
+                                                            </div>
+                                                            <div className="space-y-3">
+                                                                <div>
+                                                                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Target Type</label>
+                                                                    <select
+                                                                        value={camp.targetingMethod || 'asin'}
+                                                                        onChange={(e) => updateBulkCampaign(index, 'targetingMethod', e.target.value)}
+                                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                                                    >
+                                                                        <option value="asin">ASIN</option>
+                                                                        <option value="asin-expanded">ASIN Expanded</option>
+                                                                        <option value="category">Category</option>
+                                                                    </select>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-medium text-gray-600 mb-1.5">PT Bid</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={camp.productTargetBid || ''}
+                                                                        onChange={(e) => updateBulkCampaign(index, 'productTargetBid', e.target.value)}
+                                                                        placeholder="0.50"
+                                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Bid Modifiers */}
+                                                        <div>
+                                                            <label className="block text-xs font-medium text-gray-600 mb-2">📊 Placement Bid Adjustments (%)</label>
+                                                            <div className="grid grid-cols-3 gap-4">
+                                                                <div>
+                                                                    <label className="block text-xs text-gray-500 mb-1">Top of Search</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={camp.topOfSearchMod || ''}
+                                                                        onChange={(e) => updateBulkCampaign(index, 'topOfSearchMod', e.target.value)}
+                                                                        placeholder="0"
+                                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs text-gray-500 mb-1">Rest of Search</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={camp.restOfSearchMod || ''}
+                                                                        onChange={(e) => updateBulkCampaign(index, 'restOfSearchMod', e.target.value)}
+                                                                        placeholder="0"
+                                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs text-gray-500 mb-1">Product Pages</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={camp.productPagesMod || ''}
+                                                                        onChange={(e) => updateBulkCampaign(index, 'productPagesMod', e.target.value)}
+                                                                        placeholder="0"
+                                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Negative Keywords */}
+                                                        <div>
+                                                            <label className="block text-xs font-medium text-gray-600 mb-2">🚫 Negative Keywords</label>
+                                                            <div className="grid grid-cols-3 gap-4">
+                                                                <div className="col-span-2">
+                                                                    <textarea
+                                                                        value={camp.negativeKeywords || ''}
+                                                                        onChange={(e) => updateBulkCampaign(index, 'negativeKeywords', e.target.value)}
+                                                                        placeholder="Enter negative keywords (one per line)&#10;competitor brand&#10;cheap&#10;free"
+                                                                        rows="3"
+                                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs text-gray-500 mb-1">Match Type</label>
+                                                                    <select
+                                                                        value={camp.negativeMatchType || 'Negative exact'}
+                                                                        onChange={(e) => updateBulkCampaign(index, 'negativeMatchType', e.target.value)}
+                                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                                                    >
+                                                                        <option value="Negative exact">Negative Exact</option>
+                                                                        <option value="Negative phrase">Negative Phrase</option>
+                                                                    </select>
+                                                                    <p className="text-[10px] text-gray-500 mt-1">
+                                                                        {(camp.negativeKeywords || '').split('\n').filter(k => k.trim()).length} negative keywords
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </details>
+                                            </div>
+                                        </div>
+                                        );
+                                    })}
                                 </div>
                                 )}
+                                
+
 
                                 {!singleKeywordMode && (
                                     <button
                                         onClick={addEmptyBulkCampaign}
-                                        className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
+                                        className="w-full px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 rounded-xl hover:from-blue-100 hover:to-indigo-100 text-sm font-medium border-2 border-dashed border-blue-300 hover:border-blue-400 transition-all flex items-center justify-center gap-2"
                                     >
-                                        ➕ Add Row
+                                        <span className="text-lg">➕</span> Add New Campaign
                                     </button>
                                 )}
 
                                 {!singleKeywordMode && (
-                                    <div className="flex gap-3 mt-4">
+                                    <div className="flex gap-3 mt-4 pt-4 border-t border-gray-200">
                                     {bulkCampaigns.length > 0 ? (
                                         <>
                                             <button
                                                 onClick={createBulkCampaigns}
-                                                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                                                className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 font-medium shadow-lg shadow-blue-200 transition-all flex items-center justify-center gap-2"
                                             >
-                                                Create {bulkCampaigns.length} New Campaign{bulkCampaigns.length !== 1 ? 's' : ''}
+                                                <span>🚀</span> Create {bulkCampaigns.length} New Campaign{bulkCampaigns.length !== 1 ? 's' : ''}
                                             </button>
                                             <button
                                                 onClick={onClose}
-                                                className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
+                                                className="flex-1 px-6 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 font-medium transition-all"
                                             >
                                                 Cancel
                                             </button>
@@ -8231,9 +8556,9 @@
                                     ) : (
                                         <button
                                             onClick={onClose}
-                                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                                            className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 font-medium shadow-lg shadow-green-200 transition-all flex items-center justify-center gap-2"
                                         >
-                                            Done {createdCampaigns.length > 0 ? `(${createdCampaigns.length} campaign${createdCampaigns.length !== 1 ? 's' : ''} created)` : ''}
+                                            <span>✓</span> Done {createdCampaigns.length > 0 ? `(${createdCampaigns.length} campaign${createdCampaigns.length !== 1 ? 's' : ''} created)` : ''}
                                         </button>
                                     )}
                                 </div>
@@ -8417,6 +8742,26 @@
                                 step="0.01"
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                                 onChange={(e) => setFormData({...formData, productTargetBid: e.target.value})}
+                            />
+
+                            <hr className="my-4" />
+                            <h4 className="font-medium">Negative Keywords (optional)</h4>
+                            <p className="text-sm text-gray-600 mb-2">Add negative keywords to exclude from targeting</p>
+
+                            <select
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                                onChange={(e) => setFormData({...formData, negativeMatchType: e.target.value})}
+                                defaultValue="Negative exact"
+                            >
+                                <option value="Negative exact">Negative Exact</option>
+                                <option value="Negative phrase">Negative Phrase</option>
+                            </select>
+
+                            <textarea
+                                placeholder="Negative keywords (one per line)&#10;competitor brand&#10;cheap&#10;free"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                                rows="4"
+                                onChange={(e) => setFormData({...formData, negativeKeywords: e.target.value})}
                             />
                         </div>
                     );
