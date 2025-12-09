@@ -5000,7 +5000,7 @@
             
             // Get portfolio name helper
             const getPortfolioName = (row) => {
-                return row['Portfolio Name'] || row['Portfolio ID (Informational only)'] || '-';
+                return row['Portfolio Name (Informational only)'] || row['Portfolio Name'] || '-';
             };
             
             // Get campaign name helper
@@ -5200,6 +5200,8 @@
                         case 'spend': aVal = a.metrics.spend; bVal = b.metrics.spend; break;
                         case 'sales': aVal = a.metrics.sales; bVal = b.metrics.sales; break;
                         case 'acos': aVal = a.acos; bVal = b.acos; break;
+                        case 'ctr': aVal = a.ctr; bVal = b.ctr; break;
+                        case 'convRate': aVal = a.convRate; bVal = b.convRate; break;
                         case 'impressions': aVal = a.metrics.impressions; bVal = b.metrics.impressions; break;
                         case 'clicks': aVal = a.metrics.clicks; bVal = b.metrics.clicks; break;
                         case 'coverage': aVal = a.coverage; bVal = b.coverage; break;
@@ -5443,6 +5445,12 @@
                                         <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('sales')}>
                                             Sales <SortIndicator column="sales" />
                                         </th>
+                                        <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('ctr')}>
+                                            CTR <SortIndicator column="ctr" />
+                                        </th>
+                                        <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('convRate')}>
+                                            CVR <SortIndicator column="convRate" />
+                                        </th>
                                         <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('acos')}>
                                             ACOS <SortIndicator column="acos" />
                                         </th>
@@ -5463,6 +5471,12 @@
                                                 <td className="px-4 py-3 text-right text-xs text-gray-600">{formatNum(entry.metrics.clicks)}</td>
                                                 <td className="px-4 py-3 text-right text-xs font-medium text-gray-900">${formatNum(entry.metrics.spend, 2)}</td>
                                                 <td className="px-4 py-3 text-right text-xs font-medium text-gray-900">${formatNum(entry.metrics.sales, 2)}</td>
+                                                <td className="px-4 py-3 text-right text-xs text-gray-600">
+                                                    {entry.ctr > 0 ? entry.ctr.toFixed(2) + '%' : '-'}
+                                                </td>
+                                                <td className="px-4 py-3 text-right text-xs text-gray-600">
+                                                    {entry.convRate > 0 ? entry.convRate.toFixed(2) + '%' : '-'}
+                                                </td>
                                                 <td className={`px-4 py-3 text-right text-xs font-bold ${getAcosColor(entry.acos)}`}>
                                                     {entry.acos > 0 ? entry.acos.toFixed(1) + '%' : '-'}
                                                 </td>
@@ -5477,7 +5491,7 @@
                                             </tr>
                                             {expandedAsins.has(entry.asin) && (
                                                 <tr>
-                                                    <td colSpan="10" className="px-4 py-4 bg-gray-50">
+                                                    <td colSpan="12" className="px-4 py-4 bg-gray-50">
                                                         <div className="space-y-4">
                                                             {/* Coverage Status */}
                                                             <div className="grid grid-cols-2 gap-4">
@@ -5633,7 +5647,7 @@
             // Get helpers
             const getCampaignName = (row) => row['Campaign Name'] || row['Campaign Name (Informational only)'] || '-';
             const getAdGroupName = (row) => row['Ad Group Name'] || row['Ad Group Name (Informational only)'] || '-';
-            const getPortfolioName = (row) => row['Portfolio Name'] || row['Portfolio Name (Informational only)'] || '-';
+            const getPortfolioName = (row) => row['Portfolio Name (Informational only)'] || row['Portfolio Name'] || '-';
             
             // Get ALL ASINs in the account (from Product Ads)
             const allAsins = useMemo(() => {
