@@ -5002,10 +5002,12 @@
             setCustomColumns
         }) {
             const [searchTerm, setSearchTerm] = useState('');
-            const [statusFilter, setStatusFilter] = useState('all');
-            const [coverageFilter, setCoverageFilter] = useState('all');
-            const [portfolioFilter, setPortfolioFilter] = useState('');
             const [sortConfig, setSortConfig] = useState({ key: 'spend', direction: 'desc' });
+            
+            // Portfolio filter state - multi-select with presence mode
+            const [selectedPortfolios, setSelectedPortfolios] = useState(new Set());
+            const [portfolioPresenceMode, setPortfolioPresenceMode] = useState('existing'); // 'existing', 'missing', 'both'
+            const [showPortfolioDropdown, setShowPortfolioDropdown] = useState(false);
             const [expandedAsins, setExpandedAsins] = useState(new Set());
             const [expandedMatchTypes, setExpandedMatchTypes] = useState(new Map()); // asin -> Set of matchTypes
             const [expandedCampaigns, setExpandedCampaigns] = useState(new Map()); // "asin-matchType" -> Set of campaignIds
@@ -5515,6 +5517,15 @@
                 }
             }, [activeTextFilterColumn]);
             
+            // Close portfolio dropdown when clicking outside
+            useEffect(() => {
+                const handleClickOutside = () => setShowPortfolioDropdown(false);
+                if (showPortfolioDropdown) {
+                    document.addEventListener('click', handleClickOutside);
+                    return () => document.removeEventListener('click', handleClickOutside);
+                }
+            }, [showPortfolioDropdown]);
+            
             // Close filter popup when clicking outside
             useEffect(() => {
                 const handleClickOutside = () => setActiveFilterColumn(null);
@@ -5988,22 +5999,28 @@
                 }
                 
                 // Status filter (and In Campaigns filter for custom mode)
-                if (statusFilter === 'inCampaigns') {
-                    result = result.filter(entry => entry.inCampaigns === true);
-                } else if (statusFilter === 'notInCampaigns') {
-                    result = result.filter(entry => entry.inCampaigns === false);
-                } else if (statusFilter !== 'all') {
-                    result = result.filter(entry => entry.status === statusFilter);
-                }
+                // Note: Status and Coverage filtering now handled by table column filters
                 
-                // Coverage filter
-                if (coverageFilter !== 'all') {
-                    result = result.filter(entry => entry.coverage === coverageFilter);
-                }
-                
-                // Portfolio filter
-                if (portfolioFilter) {
-                    result = result.filter(entry => entry.portfolio === portfolioFilter);
+                // Portfolio filter - multi-select with presence mode
+                if (selectedPortfolios.size > 0) {
+                    result = result.filter(entry => {
+                        const entryPortfolio = entry.portfolio || '';
+                        const isInSelected = selectedPortfolios.has(entryPortfolio);
+                        
+                        switch (portfolioPresenceMode) {
+                            case 'existing':
+                                // Show ASINs that exist in selected portfolios
+                                return isInSelected;
+                            case 'missing':
+                                // Show ASINs that are NOT in selected portfolios
+                                return !isInSelected;
+                            case 'both':
+                            default:
+                                // Show all ASINs but filter to those related to selected portfolios somehow
+                                // For 'both', we show all ASINs (no portfolio filtering)
+                                return true;
+                        }
+                    });
                 }
                 
                 // Match type filter
@@ -6093,7 +6110,7 @@
                 });
                 
                 return result;
-            }, [activeData, searchTerm, statusFilter, coverageFilter, portfolioFilter, matchTypeFilter, columnFilters, textColumnFilters, sortConfig]);
+            }, [activeData, searchTerm, selectedPortfolios, portfolioPresenceMode, matchTypeFilter, columnFilters, textColumnFilters, sortConfig]);
             
             // Summary stats
             const summaryStats = useMemo(() => {
@@ -6364,48 +6381,115 @@
                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                                 />
                             </div>
-                            {mode === 'custom' && (
-                                <select
-                                    value={statusFilter === 'inCampaigns' || statusFilter === 'notInCampaigns' ? statusFilter : 'all'}
-                                    onChange={(e) => setStatusFilter(e.target.value)}
-                                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm"
-                                >
-                                    <option value="all">All ASINs</option>
-                                    <option value="inCampaigns">In Campaigns</option>
-                                    <option value="notInCampaigns">Not In Campaigns</option>
-                                </select>
-                            )}
-                            <select
-                                value={statusFilter !== 'inCampaigns' && statusFilter !== 'notInCampaigns' ? statusFilter : 'all'}
-                                onChange={(e) => setStatusFilter(e.target.value)}
-                                className="px-4 py-2 border border-gray-300 rounded-lg text-sm"
-                            >
-                                <option value="all">All Status</option>
-                                <option value="enabled">Enabled</option>
-                                <option value="paused">Paused</option>
-                                <option value="none">None</option>
-                            </select>
-                            <select
-                                value={coverageFilter}
-                                onChange={(e) => setCoverageFilter(e.target.value)}
-                                className="px-4 py-2 border border-gray-300 rounded-lg text-sm"
-                            >
-                                <option value="all">All Coverage</option>
-                                <option value="full">Full Coverage</option>
-                                <option value="partial">Partial Coverage</option>
-                                <option value="missing">Missing</option>
-                            </select>
+                            {/* Portfolio Multi-Select Filter */}
                             {portfolioList.length > 0 && (
-                                <select
-                                    value={portfolioFilter}
-                                    onChange={(e) => setPortfolioFilter(e.target.value)}
-                                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm"
-                                >
-                                    <option value="">All Portfolios</option>
-                                    {portfolioList.map(p => (
-                                        <option key={p} value={p}>{p}</option>
-                                    ))}
-                                </select>
+                                <div className="relative">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setShowPortfolioDropdown(!showPortfolioDropdown); }}
+                                        className={`px-4 py-2 border rounded-lg text-sm font-medium flex items-center gap-2 min-w-[180px] ${
+                                            selectedPortfolios.size > 0
+                                                ? 'bg-purple-50 border-purple-300 text-purple-700'
+                                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        <span>📁</span>
+                                        {selectedPortfolios.size === 0 
+                                            ? 'All Portfolios' 
+                                            : `${selectedPortfolios.size} Portfolio${selectedPortfolios.size > 1 ? 's' : ''}`}
+                                        <svg className={`w-4 h-4 ml-auto transition-transform ${showPortfolioDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                    </button>
+                                    
+                                    {showPortfolioDropdown && (
+                                        <div 
+                                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 w-80 dropdown-animate"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            {/* Presence Mode Selector */}
+                                            <div className="p-3 border-b border-gray-200 bg-gray-50 rounded-t-lg">
+                                                <div className="text-xs font-medium text-gray-600 mb-2">Show ASINs that are:</div>
+                                                <div className="flex gap-1">
+                                                    <button
+                                                        onClick={() => setPortfolioPresenceMode('existing')}
+                                                        className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                                                            portfolioPresenceMode === 'existing'
+                                                                ? 'bg-green-100 text-green-700 border border-green-300'
+                                                                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                                                        }`}
+                                                    >
+                                                        ✓ In Selected
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setPortfolioPresenceMode('missing')}
+                                                        className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                                                            portfolioPresenceMode === 'missing'
+                                                                ? 'bg-red-100 text-red-700 border border-red-300'
+                                                                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                                                        }`}
+                                                    >
+                                                        ✗ Not In Selected
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setPortfolioPresenceMode('both')}
+                                                        className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                                                            portfolioPresenceMode === 'both'
+                                                                ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                                                                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                                                        }`}
+                                                    >
+                                                        All
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Portfolio List */}
+                                            <div className="max-h-64 overflow-y-auto p-2">
+                                                {portfolioList.map(portfolio => (
+                                                    <label 
+                                                        key={portfolio} 
+                                                        className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded-md cursor-pointer"
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedPortfolios.has(portfolio)}
+                                                            onChange={(e) => {
+                                                                const newSelected = new Set(selectedPortfolios);
+                                                                if (e.target.checked) {
+                                                                    newSelected.add(portfolio);
+                                                                } else {
+                                                                    newSelected.delete(portfolio);
+                                                                }
+                                                                setSelectedPortfolios(newSelected);
+                                                            }}
+                                                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                                                        />
+                                                        <span className="text-sm text-gray-700 truncate">{portfolio}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            
+                                            {/* Footer Actions */}
+                                            <div className="p-2 border-t border-gray-200 flex gap-2">
+                                                <button
+                                                    onClick={() => setSelectedPortfolios(new Set(portfolioList))}
+                                                    className="flex-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md"
+                                                >
+                                                    Select All
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedPortfolios(new Set());
+                                                        setShowPortfolioDropdown(false);
+                                                    }}
+                                                    className="flex-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md"
+                                                >
+                                                    Clear All
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             )}
                             
                             {/* Match Type Filter Button */}
