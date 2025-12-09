@@ -5278,6 +5278,190 @@
                 setActiveFilterColumn(column);
             };
             
+            // Text column filters state: { columnKey: Set of selected values }
+            const [textColumnFilters, setTextColumnFilters] = useState({});
+            const [activeTextFilterColumn, setActiveTextFilterColumn] = useState(null);
+            const [textFilterPosition, setTextFilterPosition] = useState({ top: 0, left: 0 });
+            
+            // Get unique values for a text column
+            const getUniqueTextValues = (column) => {
+                const values = new Set();
+                activeData.forEach(entry => {
+                    let val = '';
+                    switch (column) {
+                        case 'parentAsin': val = entry.parentAsin || ''; break;
+                        case 'title': val = entry.title || ''; break;
+                        case 'sku': val = entry.sku || ''; break;
+                        case 'brand': val = entry.brand || ''; break;
+                        case 'category': val = entry.category || ''; break;
+                        case 'portfolio': val = entry.portfolio || ''; break;
+                        default: val = '';
+                    }
+                    if (val && val !== '-') values.add(val);
+                });
+                return Array.from(values).sort();
+            };
+            
+            // Text column filter popup component
+            const TextColumnFilterPopup = ({ column, onClose }) => {
+                const allValues = useMemo(() => getUniqueTextValues(column), [column, activeData]);
+                const currentFilter = textColumnFilters[column] || new Set();
+                const [selectedValues, setSelectedValues] = useState(new Set(currentFilter));
+                const [searchTerm, setSearchTerm] = useState('');
+                
+                const filteredValues = allValues.filter(v => 
+                    v.toLowerCase().includes(searchTerm.toLowerCase())
+                );
+                
+                const isAllSelected = filteredValues.length > 0 && filteredValues.every(v => selectedValues.has(v));
+                
+                const toggleSelectAll = () => {
+                    if (isAllSelected) {
+                        // Deselect all filtered values
+                        const newSet = new Set(selectedValues);
+                        filteredValues.forEach(v => newSet.delete(v));
+                        setSelectedValues(newSet);
+                    } else {
+                        // Select all filtered values
+                        const newSet = new Set(selectedValues);
+                        filteredValues.forEach(v => newSet.add(v));
+                        setSelectedValues(newSet);
+                    }
+                };
+                
+                const toggleValue = (value) => {
+                    const newSet = new Set(selectedValues);
+                    if (newSet.has(value)) {
+                        newSet.delete(value);
+                    } else {
+                        newSet.add(value);
+                    }
+                    setSelectedValues(newSet);
+                };
+                
+                const applyFilter = () => {
+                    if (selectedValues.size > 0) {
+                        setTextColumnFilters(prev => ({ ...prev, [column]: selectedValues }));
+                    } else {
+                        setTextColumnFilters(prev => {
+                            const newFilters = { ...prev };
+                            delete newFilters[column];
+                            return newFilters;
+                        });
+                    }
+                    onClose();
+                };
+                
+                const removeFilter = () => {
+                    setTextColumnFilters(prev => {
+                        const newFilters = { ...prev };
+                        delete newFilters[column];
+                        return newFilters;
+                    });
+                    onClose();
+                };
+                
+                const columnLabels = {
+                    parentAsin: 'Parent ASIN',
+                    title: 'Title',
+                    sku: 'SKU',
+                    brand: 'Brand',
+                    category: 'Category',
+                    portfolio: 'Portfolio'
+                };
+                
+                return (
+                    <div 
+                        className="fixed bg-white rounded-xl shadow-2xl border border-gray-200 p-4 z-50 min-w-[280px] max-w-[350px]"
+                        style={{ top: textFilterPosition.top, left: textFilterPosition.left }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Search */}
+                        <div className="relative mb-3">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
+                            <input
+                                type="text"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                placeholder="Instant search"
+                                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                                autoFocus
+                            />
+                        </div>
+                        
+                        {/* Select All */}
+                        <label className="flex items-center gap-3 py-2 px-1 hover:bg-gray-50 rounded cursor-pointer border-b border-gray-200 mb-2">
+                            <input
+                                type="checkbox"
+                                checked={isAllSelected}
+                                onChange={toggleSelectAll}
+                                className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                            />
+                            <span className="text-sm font-medium text-gray-700">Select All</span>
+                        </label>
+                        
+                        {/* Values list */}
+                        <div className="max-h-[250px] overflow-y-auto space-y-1">
+                            {filteredValues.length === 0 ? (
+                                <div className="text-sm text-gray-400 text-center py-4">No values found</div>
+                            ) : (
+                                filteredValues.map(value => (
+                                    <label key={value} className="flex items-center gap-3 py-2 px-1 hover:bg-gray-50 rounded cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedValues.has(value)}
+                                            onChange={() => toggleValue(value)}
+                                            className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                                        />
+                                        <span className="text-sm text-gray-700 truncate" title={value}>
+                                            {value.length > 40 ? value.substring(0, 40) + '...' : value}
+                                        </span>
+                                    </label>
+                                ))
+                            )}
+                        </div>
+                        
+                        {/* Selected count */}
+                        <div className="text-sm font-medium text-gray-700 mt-3 pt-3 border-t border-gray-200">
+                            {selectedValues.size} items selected
+                        </div>
+                        
+                        {/* Buttons */}
+                        <div className="flex gap-2 mt-3">
+                            <button
+                                onClick={applyFilter}
+                                className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800"
+                            >
+                                Apply filter
+                            </button>
+                            <button
+                                onClick={removeFilter}
+                                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
+                            >
+                                Remove filter
+                            </button>
+                        </div>
+                    </div>
+                );
+            };
+            
+            // Open text filter popup
+            const openTextFilterPopup = (e, column) => {
+                e.stopPropagation();
+                const rect = e.currentTarget.getBoundingClientRect();
+                setTextFilterPosition({ top: rect.bottom + 5, left: Math.min(rect.left, window.innerWidth - 300) });
+                setActiveTextFilterColumn(column);
+            };
+            
+            // Close text filter popup when clicking outside
+            useEffect(() => {
+                const handleClickOutside = () => setActiveTextFilterColumn(null);
+                if (activeTextFilterColumn) {
+                    document.addEventListener('click', handleClickOutside);
+                    return () => document.removeEventListener('click', handleClickOutside);
+                }
+            }, [activeTextFilterColumn]);
+            
             // Close filter popup when clicking outside
             useEffect(() => {
                 const handleClickOutside = () => setActiveFilterColumn(null);
@@ -5790,7 +5974,7 @@
                     });
                 }
                 
-                // Column filters
+                // Column filters (numeric)
                 Object.entries(columnFilters).forEach(([column, filter]) => {
                     result = result.filter(entry => {
                         const value = getColumnValue(entry, column);
@@ -5808,11 +5992,31 @@
                     });
                 });
                 
+                // Text column filters
+                Object.entries(textColumnFilters).forEach(([column, selectedValues]) => {
+                    if (selectedValues.size === 0) return;
+                    result = result.filter(entry => {
+                        let val = '';
+                        switch (column) {
+                            case 'parentAsin': val = entry.parentAsin || ''; break;
+                            case 'title': val = entry.title || ''; break;
+                            case 'sku': val = entry.sku || ''; break;
+                            case 'brand': val = entry.brand || ''; break;
+                            case 'category': val = entry.category || ''; break;
+                            case 'portfolio': val = entry.portfolio || ''; break;
+                            default: val = '';
+                        }
+                        return selectedValues.has(val);
+                    });
+                });
+                
                 // Sort
                 result.sort((a, b) => {
                     let aVal, bVal;
                     switch (sortConfig.key) {
                         case 'asin': aVal = a.asin; bVal = b.asin; break;
+                        case 'parentAsin': aVal = a.parentAsin || ''; bVal = b.parentAsin || ''; break;
+                        case 'title': aVal = a.title || ''; bVal = b.title || ''; break;
                         case 'spend': aVal = a.metrics.spend; bVal = b.metrics.spend; break;
                         case 'sales': aVal = a.metrics.sales; bVal = b.metrics.sales; break;
                         case 'acos': aVal = a.acos; bVal = b.acos; break;
@@ -5833,7 +6037,7 @@
                 });
                 
                 return result;
-            }, [activeData, searchTerm, statusFilter, coverageFilter, portfolioFilter, matchTypeFilter, columnFilters, sortConfig]);
+            }, [activeData, searchTerm, statusFilter, coverageFilter, portfolioFilter, matchTypeFilter, columnFilters, textColumnFilters, sortConfig]);
             
             // Summary stats
             const summaryStats = useMemo(() => {
@@ -6275,7 +6479,7 @@
                         </div>
                         
                         {/* Active filters display */}
-                        {(matchTypeFilter.mustHave.size > 0 || matchTypeFilter.mustBeMissing.size > 0 || Object.keys(columnFilters).length > 0) && (
+                        {(matchTypeFilter.mustHave.size > 0 || matchTypeFilter.mustBeMissing.size > 0 || Object.keys(columnFilters).length > 0 || Object.keys(textColumnFilters).length > 0) && (
                             <div className="mt-3 pt-3 border-t border-gray-200">
                                 <div className="flex flex-wrap gap-2 items-center">
                                     <span className="text-xs text-gray-500">Active filters:</span>
@@ -6319,6 +6523,18 @@
                                             }} className="hover:text-blue-900">✕</button>
                                         </span>
                                     ))}
+                                    {Object.entries(textColumnFilters).map(([col, selectedValues]) => (
+                                        <span key={`textcol-${col}`} className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
+                                            {col}: {selectedValues.size} selected
+                                            <button onClick={() => {
+                                                setTextColumnFilters(prev => {
+                                                    const newFilters = { ...prev };
+                                                    delete newFilters[col];
+                                                    return newFilters;
+                                                });
+                                            }} className="hover:text-purple-900">✕</button>
+                                        </span>
+                                    ))}
                                 </div>
                             </div>
                         )}
@@ -6328,8 +6544,11 @@
                         </div>
                     </div>
                     
-                    {/* Column Filter Popup */}
+                    {/* Column Filter Popup (numeric) */}
                     {activeFilterColumn && <ColumnFilterPopup column={activeFilterColumn} onClose={() => setActiveFilterColumn(null)} />}
+                    
+                    {/* Text Column Filter Popup */}
+                    {activeTextFilterColumn && <TextColumnFilterPopup column={activeTextFilterColumn} onClose={() => setActiveTextFilterColumn(null)} />}
                     
                     {/* Data Table */}
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -6346,20 +6565,45 @@
                                         </th>
                                         {mode === 'custom' && customColumns.includes('parentAsin') && (
                                             <th style={{ width: columnWidths.parentAsin, minWidth: columnWidths.parentAsin }} className="relative group px-3 py-3 text-left font-medium text-gray-700">
-                                                <div className="flex items-center gap-1">Parent ASIN</div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('parentAsin')}>
+                                                        Parent ASIN <SortIndicator column="parentAsin" />
+                                                    </span>
+                                                    <button 
+                                                        onClick={(e) => openTextFilterPopup(e, 'parentAsin')}
+                                                        className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${textColumnFilters.parentAsin ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                        title="Filter"
+                                                    >⫶</button>
+                                                </div>
                                                 <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
                                                     onMouseDown={(e) => handleResizeStart(e, 'parentAsin')} />
                                             </th>
                                         )}
                                         {mode === 'custom' && customColumns.includes('title') && (
                                             <th style={{ width: columnWidths.title, minWidth: columnWidths.title }} className="relative group px-3 py-3 text-left font-medium text-gray-700">
-                                                <div className="flex items-center gap-1">Title</div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('title')}>
+                                                        Title <SortIndicator column="title" />
+                                                    </span>
+                                                    <button 
+                                                        onClick={(e) => openTextFilterPopup(e, 'title')}
+                                                        className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${textColumnFilters.title ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                        title="Filter"
+                                                    >⫶</button>
+                                                </div>
                                                 <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
                                                     onMouseDown={(e) => handleResizeStart(e, 'title')} />
                                             </th>
                                         )}
                                         <th style={{ width: columnWidths.sku, minWidth: columnWidths.sku }} className="relative group px-3 py-3 text-left font-medium text-gray-700">
-                                            <div className="flex items-center gap-1">SKU(s)</div>
+                                            <div className="flex items-center gap-1">
+                                                <span>SKU(s)</span>
+                                                <button 
+                                                    onClick={(e) => openTextFilterPopup(e, 'sku')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${textColumnFilters.sku ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
+                                            </div>
                                             <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
                                                 onMouseDown={(e) => handleResizeStart(e, 'sku')} />
                                         </th>
