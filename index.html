@@ -5012,6 +5012,8 @@
             const [selectedCheckCampaigns, setSelectedCheckCampaigns] = useState(new Set()); // Campaign IDs to check against
             const [showCampaignDropdown, setShowCampaignDropdown] = useState(false);
             const [selectedAsinRows, setSelectedAsinRows] = useState(new Set()); // Selected ASINs for bulk actions
+            const [portfolioSearchTerm, setPortfolioSearchTerm] = useState('');
+            const [campaignSearchTerm, setCampaignSearchTerm] = useState('');
             
             const [expandedAsins, setExpandedAsins] = useState(new Set());
             const [expandedMatchTypes, setExpandedMatchTypes] = useState(new Map()); // asin -> Set of matchTypes
@@ -6462,12 +6464,27 @@
                                     
                                     {showPortfolioDropdown && (
                                         <div 
-                                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 w-72 dropdown-animate"
+                                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl w-80 dropdown-animate"
+                                            style={{ zIndex: 9999 }}
                                             onClick={(e) => e.stopPropagation()}
                                         >
+                                            {/* Search Input */}
+                                            <div className="p-2 border-b border-gray-200">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search portfolios..."
+                                                    value={portfolioSearchTerm}
+                                                    onChange={(e) => setPortfolioSearchTerm(e.target.value)}
+                                                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                />
+                                            </div>
+                                            
                                             {/* Portfolio List */}
                                             <div className="max-h-64 overflow-y-auto p-2">
-                                                {portfolioList.map(portfolio => (
+                                                {portfolioList
+                                                    .filter(portfolio => portfolio.toLowerCase().includes(portfolioSearchTerm.toLowerCase()))
+                                                    .map(portfolio => (
                                                     <label 
                                                         key={portfolio} 
                                                         className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded-md cursor-pointer"
@@ -6489,22 +6506,25 @@
                                                         <span className="text-sm text-gray-700 truncate">{portfolio}</span>
                                                     </label>
                                                 ))}
+                                                {portfolioList.filter(portfolio => portfolio.toLowerCase().includes(portfolioSearchTerm.toLowerCase())).length === 0 && (
+                                                    <div className="text-sm text-gray-500 text-center py-4">No portfolios found</div>
+                                                )}
                                             </div>
                                             
                                             {/* Footer Actions */}
-                                            <div className="p-2 border-t border-gray-200 flex gap-2">
+                                            <div className="p-2 border-t border-gray-200 flex gap-2 bg-gray-50 rounded-b-lg">
                                                 <button
                                                     onClick={() => setSelectedPortfolios(new Set(portfolioList))}
-                                                    className="flex-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md"
+                                                    className="flex-1 px-3 py-2 text-xs font-medium text-purple-700 bg-purple-100 hover:bg-purple-200 rounded-md transition"
                                                 >
                                                     Select All
                                                 </button>
                                                 <button
                                                     onClick={() => {
                                                         setSelectedPortfolios(new Set());
-                                                        setShowPortfolioDropdown(false);
+                                                        setPortfolioSearchTerm('');
                                                     }}
-                                                    className="flex-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md"
+                                                    className="flex-1 px-3 py-2 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition"
                                                 >
                                                     Clear All
                                                 </button>
@@ -6536,18 +6556,31 @@
                                     
                                     {showCampaignDropdown && (
                                         <div 
-                                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 w-96 dropdown-animate"
+                                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl w-[420px] dropdown-animate"
+                                            style={{ zIndex: 9999 }}
                                             onClick={(e) => e.stopPropagation()}
                                         >
                                             {/* Info header */}
                                             {selectedPortfolios.size > 0 && (
-                                                <div className="px-3 py-2 bg-purple-50 text-xs text-purple-700 border-b border-gray-200">
+                                                <div className="px-3 py-2 bg-purple-50 text-xs text-purple-700 border-b border-gray-200 rounded-t-lg">
                                                     Showing campaigns from {selectedPortfolios.size} selected portfolio{selectedPortfolios.size > 1 ? 's' : ''}
                                                 </div>
                                             )}
                                             
+                                            {/* Search Input */}
+                                            <div className="p-2 border-b border-gray-200">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search campaigns..."
+                                                    value={campaignSearchTerm}
+                                                    onChange={(e) => setCampaignSearchTerm(e.target.value)}
+                                                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                />
+                                            </div>
+                                            
                                             {/* Campaign List */}
-                                            <div className="max-h-64 overflow-y-auto p-2">
+                                            <div className="max-h-72 overflow-y-auto p-2">
                                                 {campaignList.length === 0 ? (
                                                     <div className="text-sm text-gray-500 text-center py-4">
                                                         {selectedPortfolios.size > 0 
@@ -6555,7 +6588,9 @@
                                                             : 'No campaigns found'}
                                                     </div>
                                                 ) : (
-                                                    campaignList.map(campaign => (
+                                                    campaignList
+                                                        .filter(campaign => campaign.name.toLowerCase().includes(campaignSearchTerm.toLowerCase()))
+                                                        .map(campaign => (
                                                         <label 
                                                             key={campaign.id} 
                                                             className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded-md cursor-pointer"
@@ -6572,7 +6607,7 @@
                                                                     }
                                                                     setSelectedCheckCampaigns(newSelected);
                                                                 }}
-                                                                className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                                                                className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 flex-shrink-0"
                                                             />
                                                             <div className="flex-1 min-w-0">
                                                                 <div className="text-sm text-gray-700 truncate">{campaign.name}</div>
@@ -6580,7 +6615,7 @@
                                                                     <div className="text-xs text-gray-400 truncate">{campaign.portfolio}</div>
                                                                 )}
                                                             </div>
-                                                            <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                                            <span className={`text-xs px-1.5 py-0.5 rounded flex-shrink-0 ${
                                                                 campaign.state === 'enabled' 
                                                                     ? 'bg-green-100 text-green-700' 
                                                                     : 'bg-gray-100 text-gray-500'
@@ -6590,22 +6625,28 @@
                                                         </label>
                                                     ))
                                                 )}
+                                                {campaignList.length > 0 && campaignList.filter(campaign => campaign.name.toLowerCase().includes(campaignSearchTerm.toLowerCase())).length === 0 && (
+                                                    <div className="text-sm text-gray-500 text-center py-4">No campaigns match your search</div>
+                                                )}
                                             </div>
                                             
                                             {/* Footer Actions */}
-                                            <div className="p-2 border-t border-gray-200 flex gap-2">
+                                            <div className="p-2 border-t border-gray-200 flex gap-2 bg-gray-50 rounded-b-lg">
                                                 <button
-                                                    onClick={() => setSelectedCheckCampaigns(new Set(campaignList.map(c => c.id)))}
-                                                    className="flex-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md"
+                                                    onClick={() => {
+                                                        const filteredCampaigns = campaignList.filter(c => c.name.toLowerCase().includes(campaignSearchTerm.toLowerCase()));
+                                                        setSelectedCheckCampaigns(new Set(filteredCampaigns.map(c => c.id)));
+                                                    }}
+                                                    className="flex-1 px-3 py-2 text-xs font-medium text-orange-700 bg-orange-100 hover:bg-orange-200 rounded-md transition"
                                                 >
-                                                    Select All
+                                                    Select All{campaignSearchTerm ? ' Filtered' : ''}
                                                 </button>
                                                 <button
                                                     onClick={() => {
                                                         setSelectedCheckCampaigns(new Set());
-                                                        setShowCampaignDropdown(false);
+                                                        setCampaignSearchTerm('');
                                                     }}
-                                                    className="flex-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md"
+                                                    className="flex-1 px-3 py-2 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition"
                                                 >
                                                     Clear All
                                                 </button>
