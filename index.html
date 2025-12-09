@@ -4980,6 +4980,58 @@
             const [expandedMatchTypes, setExpandedMatchTypes] = useState(new Map()); // asin -> Set of matchTypes
             const [expandedCampaigns, setExpandedCampaigns] = useState(new Map()); // "asin-matchType" -> Set of campaignIds
             
+            // Match type filter state: { mustHave: Set, mustBeMissing: Set }
+            const [matchTypeFilter, setMatchTypeFilter] = useState({ mustHave: new Set(), mustBeMissing: new Set() });
+            const [showMatchTypeFilter, setShowMatchTypeFilter] = useState(false);
+            
+            // Column filters state: { columnKey: { conditions: [{ operator, value }], logic: 'and' | 'or' } }
+            const [columnFilters, setColumnFilters] = useState({});
+            const [activeFilterColumn, setActiveFilterColumn] = useState(null);
+            const [filterPopupPosition, setFilterPopupPosition] = useState({ top: 0, left: 0 });
+            
+            // Column widths state
+            const [columnWidths, setColumnWidths] = useState({
+                asin: 120,
+                sku: 100,
+                coverage: 100,
+                status: 90,
+                impressions: 90,
+                clicks: 80,
+                spend: 90,
+                sales: 90,
+                ctr: 70,
+                cvr: 70,
+                acos: 80,
+                details: 80
+            });
+            const [resizing, setResizing] = useState(null);
+            
+            // Handle column resize
+            const handleResizeStart = (e, column) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setResizing({ column, startX: e.clientX, startWidth: columnWidths[column] });
+            };
+            
+            useEffect(() => {
+                if (!resizing) return;
+                
+                const handleMouseMove = (e) => {
+                    const diff = e.clientX - resizing.startX;
+                    const newWidth = Math.max(50, resizing.startWidth + diff);
+                    setColumnWidths(prev => ({ ...prev, [resizing.column]: newWidth }));
+                };
+                
+                const handleMouseUp = () => setResizing(null);
+                
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+                return () => {
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    document.removeEventListener('mouseup', handleMouseUp);
+                };
+            }, [resizing]);
+            
             // Toggle match type expansion within an ASIN
             const toggleMatchTypeExpand = (asin, matchType) => {
                 setExpandedMatchTypes(prev => {
@@ -5027,6 +5079,126 @@
                 const key = `${asin}-${matchType}`;
                 return expandedCampaigns.has(key) && expandedCampaigns.get(key).has(campaignId);
             };
+            
+            // Column filter popup component
+            const ColumnFilterPopup = ({ column, onClose }) => {
+                const currentFilter = columnFilters[column] || { conditions: [{ operator: '>=', value: '' }, { operator: '>=', value: '' }], logic: 'and' };
+                const [localFilter, setLocalFilter] = useState(currentFilter);
+                
+                const operators = [
+                    { value: '>=', label: '>= More than or equal to' },
+                    { value: '<=', label: '<= Less than or equal to' },
+                    { value: '>', label: '> More than' },
+                    { value: '<', label: '< Less than' },
+                    { value: 'hasValue', label: 'Has value' },
+                    { value: 'noValue', label: 'Has no value' }
+                ];
+                
+                const applyFilter = () => {
+                    const hasValidCondition = localFilter.conditions.some(c => 
+                        c.operator === 'hasValue' || c.operator === 'noValue' || (c.value !== '' && !isNaN(parseFloat(c.value)))
+                    );
+                    if (hasValidCondition) {
+                        setColumnFilters(prev => ({ ...prev, [column]: localFilter }));
+                    }
+                    onClose();
+                };
+                
+                const removeFilter = () => {
+                    setColumnFilters(prev => {
+                        const newFilters = { ...prev };
+                        delete newFilters[column];
+                        return newFilters;
+                    });
+                    onClose();
+                };
+                
+                return (
+                    <div 
+                        className="fixed bg-white rounded-xl shadow-2xl border border-gray-200 p-4 z-50 min-w-[280px]"
+                        style={{ top: filterPopupPosition.top, left: filterPopupPosition.left }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="text-sm font-medium text-gray-700 mb-3">Show items with value that:</div>
+                        
+                        {localFilter.conditions.map((condition, idx) => (
+                            <div key={idx} className="mb-3">
+                                {idx > 0 && (
+                                    <div className="mb-2">
+                                        <select
+                                            value={localFilter.logic}
+                                            onChange={(e) => setLocalFilter(prev => ({ ...prev, logic: e.target.value }))}
+                                            className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                                        >
+                                            <option value="and">And</option>
+                                            <option value="or">Or</option>
+                                        </select>
+                                    </div>
+                                )}
+                                <select
+                                    value={condition.operator}
+                                    onChange={(e) => {
+                                        const newConditions = [...localFilter.conditions];
+                                        newConditions[idx] = { ...newConditions[idx], operator: e.target.value };
+                                        setLocalFilter(prev => ({ ...prev, conditions: newConditions }));
+                                    }}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2"
+                                >
+                                    {operators.map(op => (
+                                        <option key={op.value} value={op.value}>{op.label}</option>
+                                    ))}
+                                </select>
+                                {condition.operator !== 'hasValue' && condition.operator !== 'noValue' && (
+                                    <input
+                                        type="number"
+                                        step="any"
+                                        value={condition.value}
+                                        onChange={(e) => {
+                                            const newConditions = [...localFilter.conditions];
+                                            newConditions[idx] = { ...newConditions[idx], value: e.target.value };
+                                            setLocalFilter(prev => ({ ...prev, conditions: newConditions }));
+                                        }}
+                                        placeholder="Enter value..."
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                    />
+                                )}
+                            </div>
+                        ))}
+                        
+                        <div className="flex gap-2 mt-4">
+                            <button
+                                onClick={applyFilter}
+                                className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800"
+                            >
+                                Apply filter
+                            </button>
+                            <button
+                                onClick={removeFilter}
+                                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
+                            >
+                                Remove filter
+                            </button>
+                        </div>
+                    </div>
+                );
+            };
+            
+            // Open filter popup
+            const openFilterPopup = (e, column) => {
+                e.stopPropagation();
+                const rect = e.currentTarget.getBoundingClientRect();
+                setFilterPopupPosition({ top: rect.bottom + 5, left: Math.min(rect.left, window.innerWidth - 300) });
+                setActiveFilterColumn(column);
+            };
+            
+            // Close filter popup when clicking outside
+            useEffect(() => {
+                const handleClickOutside = () => setActiveFilterColumn(null);
+                if (activeFilterColumn) {
+                    document.addEventListener('click', handleClickOutside);
+                    return () => document.removeEventListener('click', handleClickOutside);
+                }
+            }, [activeFilterColumn]);
             
             // Parse number helper (handles European format)
             const parseNum = (val) => {
@@ -5370,6 +5542,45 @@
                 return Array.from(portfolios).sort();
             }, [asinCoverageData]);
             
+            // Get all unique match types across all ASINs
+            const allMatchTypesList = useMemo(() => {
+                const matchTypes = new Set();
+                asinCoverageData.forEach(entry => {
+                    entry.matchTypes.forEach(mt => matchTypes.add(mt.matchType));
+                    entry.missingMatchTypes.forEach(mt => matchTypes.add(mt));
+                });
+                return Array.from(matchTypes).sort();
+            }, [asinCoverageData]);
+            
+            // Helper to check column filter condition
+            const checkCondition = (value, operator, filterValue) => {
+                if (operator === 'hasValue') return value !== null && value !== undefined && value !== 0 && value !== '';
+                if (operator === 'noValue') return value === null || value === undefined || value === 0 || value === '';
+                const numValue = parseFloat(value) || 0;
+                const numFilter = parseFloat(filterValue) || 0;
+                switch (operator) {
+                    case '>=': return numValue >= numFilter;
+                    case '<=': return numValue <= numFilter;
+                    case '>': return numValue > numFilter;
+                    case '<': return numValue < numFilter;
+                    default: return true;
+                }
+            };
+            
+            // Get value for column
+            const getColumnValue = (entry, column) => {
+                switch (column) {
+                    case 'impressions': return entry.metrics.impressions;
+                    case 'clicks': return entry.metrics.clicks;
+                    case 'spend': return entry.metrics.spend;
+                    case 'sales': return entry.metrics.sales;
+                    case 'ctr': return entry.ctr;
+                    case 'cvr': return entry.convRate;
+                    case 'acos': return entry.acos;
+                    default: return 0;
+                }
+            };
+            
             // Filter and sort data
             const filteredData = useMemo(() => {
                 let result = [...asinCoverageData];
@@ -5399,6 +5610,45 @@
                     result = result.filter(entry => entry.portfolio === portfolioFilter);
                 }
                 
+                // Match type filter
+                if (matchTypeFilter.mustHave.size > 0) {
+                    result = result.filter(entry => {
+                        const presentTypes = new Set(entry.matchTypes.map(mt => mt.matchType));
+                        for (const mt of matchTypeFilter.mustHave) {
+                            if (!presentTypes.has(mt)) return false;
+                        }
+                        return true;
+                    });
+                }
+                
+                if (matchTypeFilter.mustBeMissing.size > 0) {
+                    result = result.filter(entry => {
+                        const missingSet = new Set(entry.missingMatchTypes);
+                        for (const mt of matchTypeFilter.mustBeMissing) {
+                            if (!missingSet.has(mt)) return false;
+                        }
+                        return true;
+                    });
+                }
+                
+                // Column filters
+                Object.entries(columnFilters).forEach(([column, filter]) => {
+                    result = result.filter(entry => {
+                        const value = getColumnValue(entry, column);
+                        const validConditions = filter.conditions.filter(c => 
+                            c.operator === 'hasValue' || c.operator === 'noValue' || (c.value !== '' && !isNaN(parseFloat(c.value)))
+                        );
+                        
+                        if (validConditions.length === 0) return true;
+                        
+                        if (filter.logic === 'and') {
+                            return validConditions.every(c => checkCondition(value, c.operator, c.value));
+                        } else {
+                            return validConditions.some(c => checkCondition(value, c.operator, c.value));
+                        }
+                    });
+                });
+                
                 // Sort
                 result.sort((a, b) => {
                     let aVal, bVal;
@@ -5424,7 +5674,7 @@
                 });
                 
                 return result;
-            }, [asinCoverageData, searchTerm, statusFilter, coverageFilter, portfolioFilter, sortConfig]);
+            }, [asinCoverageData, searchTerm, statusFilter, coverageFilter, portfolioFilter, matchTypeFilter, columnFilters, sortConfig]);
             
             // Summary stats
             const summaryStats = useMemo(() => {
@@ -5613,6 +5863,125 @@
                                     ))}
                                 </select>
                             )}
+                            
+                            {/* Match Type Filter Button */}
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowMatchTypeFilter(!showMatchTypeFilter)}
+                                    className={`px-4 py-2 border rounded-lg text-sm font-medium flex items-center gap-2 ${
+                                        matchTypeFilter.mustHave.size > 0 || matchTypeFilter.mustBeMissing.size > 0
+                                            ? 'bg-cyan-50 border-cyan-300 text-cyan-700'
+                                            : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    🎯 Match Types
+                                    {(matchTypeFilter.mustHave.size > 0 || matchTypeFilter.mustBeMissing.size > 0) && (
+                                        <span className="bg-cyan-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                                            {matchTypeFilter.mustHave.size + matchTypeFilter.mustBeMissing.size}
+                                        </span>
+                                    )}
+                                </button>
+                                
+                                {showMatchTypeFilter && (
+                                    <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 z-50 min-w-[350px] max-h-[400px] overflow-y-auto">
+                                        <div className="flex justify-between items-center mb-3">
+                                            <span className="font-medium text-gray-900">Filter by Match Types</span>
+                                            <button 
+                                                onClick={() => setShowMatchTypeFilter(false)}
+                                                className="text-gray-400 hover:text-gray-600"
+                                            >✕</button>
+                                        </div>
+                                        
+                                        <div className="space-y-4">
+                                            <div>
+                                                <div className="text-xs font-medium text-green-700 mb-2 flex items-center gap-1">
+                                                    <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                                                    Must HAVE these match types:
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-1">
+                                                    {allMatchTypesList.map(mt => (
+                                                        <label key={`has-${mt}`} className="flex items-center gap-2 text-xs p-1 hover:bg-gray-50 rounded cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={matchTypeFilter.mustHave.has(mt)}
+                                                                onChange={(e) => {
+                                                                    setMatchTypeFilter(prev => {
+                                                                        const newMustHave = new Set(prev.mustHave);
+                                                                        if (e.target.checked) {
+                                                                            newMustHave.add(mt);
+                                                                            // Remove from mustBeMissing if present
+                                                                            const newMustBeMissing = new Set(prev.mustBeMissing);
+                                                                            newMustBeMissing.delete(mt);
+                                                                            return { mustHave: newMustHave, mustBeMissing: newMustBeMissing };
+                                                                        } else {
+                                                                            newMustHave.delete(mt);
+                                                                            return { ...prev, mustHave: newMustHave };
+                                                                        }
+                                                                    });
+                                                                }}
+                                                                className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                                            />
+                                                            <span className="truncate">{mt}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="border-t border-gray-200 pt-3">
+                                                <div className="text-xs font-medium text-red-700 mb-2 flex items-center gap-1">
+                                                    <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                                                    Must be MISSING these match types:
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-1">
+                                                    {allMatchTypesList.map(mt => (
+                                                        <label key={`missing-${mt}`} className="flex items-center gap-2 text-xs p-1 hover:bg-gray-50 rounded cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={matchTypeFilter.mustBeMissing.has(mt)}
+                                                                onChange={(e) => {
+                                                                    setMatchTypeFilter(prev => {
+                                                                        const newMustBeMissing = new Set(prev.mustBeMissing);
+                                                                        if (e.target.checked) {
+                                                                            newMustBeMissing.add(mt);
+                                                                            // Remove from mustHave if present
+                                                                            const newMustHave = new Set(prev.mustHave);
+                                                                            newMustHave.delete(mt);
+                                                                            return { mustHave: newMustHave, mustBeMissing: newMustBeMissing };
+                                                                        } else {
+                                                                            newMustBeMissing.delete(mt);
+                                                                            return { ...prev, mustBeMissing: newMustBeMissing };
+                                                                        }
+                                                                    });
+                                                                }}
+                                                                className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                                                            />
+                                                            <span className="truncate">{mt}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex gap-2 mt-4 pt-3 border-t border-gray-200">
+                                            <button
+                                                onClick={() => {
+                                                    setMatchTypeFilter({ mustHave: new Set(), mustBeMissing: new Set() });
+                                                }}
+                                                className="flex-1 px-3 py-2 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                                            >
+                                                Clear All
+                                            </button>
+                                            <button
+                                                onClick={() => setShowMatchTypeFilter(false)}
+                                                className="flex-1 px-3 py-2 text-xs bg-cyan-600 text-white rounded-lg hover:bg-cyan-700"
+                                            >
+                                                Done
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            
                             <button
                                 onClick={exportToCsv}
                                 className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-700 transition flex items-center gap-2"
@@ -5620,73 +5989,223 @@
                                 📥 Export CSV
                             </button>
                         </div>
+                        
+                        {/* Active filters display */}
+                        {(matchTypeFilter.mustHave.size > 0 || matchTypeFilter.mustBeMissing.size > 0 || Object.keys(columnFilters).length > 0) && (
+                            <div className="mt-3 pt-3 border-t border-gray-200">
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    <span className="text-xs text-gray-500">Active filters:</span>
+                                    {Array.from(matchTypeFilter.mustHave).map(mt => (
+                                        <span key={`tag-has-${mt}`} className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
+                                            Has: {mt}
+                                            <button onClick={() => {
+                                                setMatchTypeFilter(prev => {
+                                                    const newSet = new Set(prev.mustHave);
+                                                    newSet.delete(mt);
+                                                    return { ...prev, mustHave: newSet };
+                                                });
+                                            }} className="hover:text-green-900">✕</button>
+                                        </span>
+                                    ))}
+                                    {Array.from(matchTypeFilter.mustBeMissing).map(mt => (
+                                        <span key={`tag-missing-${mt}`} className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">
+                                            Missing: {mt}
+                                            <button onClick={() => {
+                                                setMatchTypeFilter(prev => {
+                                                    const newSet = new Set(prev.mustBeMissing);
+                                                    newSet.delete(mt);
+                                                    return { ...prev, mustBeMissing: newSet };
+                                                });
+                                            }} className="hover:text-red-900">✕</button>
+                                        </span>
+                                    ))}
+                                    {Object.entries(columnFilters).map(([col, filter]) => (
+                                        <span key={`col-${col}`} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
+                                            {col}: {filter.conditions.filter(c => c.value || c.operator === 'hasValue' || c.operator === 'noValue').map(c => 
+                                                c.operator === 'hasValue' ? 'has value' : 
+                                                c.operator === 'noValue' ? 'no value' : 
+                                                `${c.operator} ${c.value}`
+                                            ).join(` ${filter.logic} `)}
+                                            <button onClick={() => {
+                                                setColumnFilters(prev => {
+                                                    const newFilters = { ...prev };
+                                                    delete newFilters[col];
+                                                    return newFilters;
+                                                });
+                                            }} className="hover:text-blue-900">✕</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        
                         <div className="mt-2 text-xs text-gray-500">
                             Showing {filteredData.length} of {asinCoverageData.length} ASINs
                         </div>
                     </div>
                     
+                    {/* Column Filter Popup */}
+                    {activeFilterColumn && <ColumnFilterPopup column={activeFilterColumn} onClose={() => setActiveFilterColumn(null)} />}
+                    
                     {/* Data Table */}
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                         <div className="overflow-x-auto" style={{ maxHeight: '60vh' }}>
-                            <table className="w-full text-sm">
-                                <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                            <table className="text-sm" style={{ minWidth: '100%' }}>
+                                <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
                                     <tr>
-                                        <th className="px-4 py-3 text-left font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('asin')}>
-                                            ASIN <SortIndicator column="asin" />
+                                        <th style={{ width: columnWidths.asin, minWidth: columnWidths.asin }} className="relative group px-3 py-3 text-left font-medium text-gray-700">
+                                            <div className="flex items-center gap-1 cursor-pointer hover:text-cyan-600" onClick={() => handleSort('asin')}>
+                                                ASIN <SortIndicator column="asin" />
+                                            </div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'asin')} />
                                         </th>
-                                        <th className="px-4 py-3 text-left font-medium text-gray-700">SKU(s)</th>
-                                        <th className="px-4 py-3 text-center font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('coverage')}>
-                                            Coverage <SortIndicator column="coverage" />
+                                        <th style={{ width: columnWidths.sku, minWidth: columnWidths.sku }} className="relative group px-3 py-3 text-left font-medium text-gray-700">
+                                            <div className="flex items-center gap-1">SKU(s)</div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'sku')} />
                                         </th>
-                                        <th className="px-4 py-3 text-center font-medium text-gray-700">Status</th>
-                                        <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('impressions')}>
-                                            Impr. <SortIndicator column="impressions" />
+                                        <th style={{ width: columnWidths.coverage, minWidth: columnWidths.coverage }} className="relative group px-3 py-3 text-center font-medium text-gray-700">
+                                            <div className="flex items-center justify-center gap-1 cursor-pointer hover:text-cyan-600" onClick={() => handleSort('coverage')}>
+                                                Coverage <SortIndicator column="coverage" />
+                                            </div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'coverage')} />
                                         </th>
-                                        <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('clicks')}>
-                                            Clicks <SortIndicator column="clicks" />
+                                        <th style={{ width: columnWidths.status, minWidth: columnWidths.status }} className="relative group px-3 py-3 text-center font-medium text-gray-700">
+                                            <div className="flex items-center justify-center gap-1">Status</div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'status')} />
                                         </th>
-                                        <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('spend')}>
-                                            Spend <SortIndicator column="spend" />
+                                        <th style={{ width: columnWidths.impressions, minWidth: columnWidths.impressions }} className="relative group px-3 py-3 text-right font-medium text-gray-700">
+                                            <div className="flex items-center justify-end gap-1">
+                                                <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('impressions')}>
+                                                    Impr. <SortIndicator column="impressions" />
+                                                </span>
+                                                <button 
+                                                    onClick={(e) => openFilterPopup(e, 'impressions')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${columnFilters.impressions ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
+                                            </div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'impressions')} />
                                         </th>
-                                        <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('sales')}>
-                                            Sales <SortIndicator column="sales" />
+                                        <th style={{ width: columnWidths.clicks, minWidth: columnWidths.clicks }} className="relative group px-3 py-3 text-right font-medium text-gray-700">
+                                            <div className="flex items-center justify-end gap-1">
+                                                <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('clicks')}>
+                                                    Clicks <SortIndicator column="clicks" />
+                                                </span>
+                                                <button 
+                                                    onClick={(e) => openFilterPopup(e, 'clicks')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${columnFilters.clicks ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
+                                            </div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'clicks')} />
                                         </th>
-                                        <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('ctr')}>
-                                            CTR <SortIndicator column="ctr" />
+                                        <th style={{ width: columnWidths.spend, minWidth: columnWidths.spend }} className="relative group px-3 py-3 text-right font-medium text-gray-700">
+                                            <div className="flex items-center justify-end gap-1">
+                                                <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('spend')}>
+                                                    Spend <SortIndicator column="spend" />
+                                                </span>
+                                                <button 
+                                                    onClick={(e) => openFilterPopup(e, 'spend')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${columnFilters.spend ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
+                                            </div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'spend')} />
                                         </th>
-                                        <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('convRate')}>
-                                            CVR <SortIndicator column="convRate" />
+                                        <th style={{ width: columnWidths.sales, minWidth: columnWidths.sales }} className="relative group px-3 py-3 text-right font-medium text-gray-700">
+                                            <div className="flex items-center justify-end gap-1">
+                                                <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('sales')}>
+                                                    Sales <SortIndicator column="sales" />
+                                                </span>
+                                                <button 
+                                                    onClick={(e) => openFilterPopup(e, 'sales')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${columnFilters.sales ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
+                                            </div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'sales')} />
                                         </th>
-                                        <th className="px-4 py-3 text-right font-medium text-gray-700 cursor-pointer hover:bg-gray-100" onClick={() => handleSort('acos')}>
-                                            ACOS <SortIndicator column="acos" />
+                                        <th style={{ width: columnWidths.ctr, minWidth: columnWidths.ctr }} className="relative group px-3 py-3 text-right font-medium text-gray-700">
+                                            <div className="flex items-center justify-end gap-1">
+                                                <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('ctr')}>
+                                                    CTR <SortIndicator column="ctr" />
+                                                </span>
+                                                <button 
+                                                    onClick={(e) => openFilterPopup(e, 'ctr')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${columnFilters.ctr ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
+                                            </div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'ctr')} />
                                         </th>
-                                        <th className="px-4 py-3 text-center font-medium text-gray-700">Details</th>
+                                        <th style={{ width: columnWidths.cvr, minWidth: columnWidths.cvr }} className="relative group px-3 py-3 text-right font-medium text-gray-700">
+                                            <div className="flex items-center justify-end gap-1">
+                                                <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('convRate')}>
+                                                    CVR <SortIndicator column="convRate" />
+                                                </span>
+                                                <button 
+                                                    onClick={(e) => openFilterPopup(e, 'cvr')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${columnFilters.cvr ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
+                                            </div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'cvr')} />
+                                        </th>
+                                        <th style={{ width: columnWidths.acos, minWidth: columnWidths.acos }} className="relative group px-3 py-3 text-right font-medium text-gray-700">
+                                            <div className="flex items-center justify-end gap-1">
+                                                <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('acos')}>
+                                                    ACOS <SortIndicator column="acos" />
+                                                </span>
+                                                <button 
+                                                    onClick={(e) => openFilterPopup(e, 'acos')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${columnFilters.acos ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
+                                            </div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'acos')} />
+                                        </th>
+                                        <th style={{ width: columnWidths.details, minWidth: columnWidths.details }} className="relative group px-3 py-3 text-center font-medium text-gray-700">
+                                            <div className="flex items-center justify-center gap-1">Details</div>
+                                            <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                onMouseDown={(e) => handleResizeStart(e, 'details')} />
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {filteredData.map((entry) => (
                                         <React.Fragment key={entry.asin}>
                                             <tr className="hover:bg-gray-50 transition">
-                                                <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{entry.asin}</td>
-                                                <td className="px-4 py-3 text-xs text-gray-600 max-w-[150px] truncate" title={entry.sku}>
+                                                <td style={{ width: columnWidths.asin }} className="px-3 py-3 font-mono text-xs font-medium text-gray-900">{entry.asin}</td>
+                                                <td style={{ width: columnWidths.sku }} className="px-3 py-3 text-xs text-gray-600 truncate" title={entry.sku}>
                                                     {entry.sku || '-'}
                                                 </td>
-                                                <td className="px-4 py-3 text-center">{getCoverageBadge(entry.coverage)}</td>
-                                                <td className="px-4 py-3 text-center">{getStatusBadge(entry.status)}</td>
-                                                <td className="px-4 py-3 text-right text-xs text-gray-600">{formatNum(entry.metrics.impressions)}</td>
-                                                <td className="px-4 py-3 text-right text-xs text-gray-600">{formatNum(entry.metrics.clicks)}</td>
-                                                <td className="px-4 py-3 text-right text-xs font-medium text-gray-900">${formatNum(entry.metrics.spend, 2)}</td>
-                                                <td className="px-4 py-3 text-right text-xs font-medium text-gray-900">${formatNum(entry.metrics.sales, 2)}</td>
-                                                <td className="px-4 py-3 text-right text-xs text-gray-600">
+                                                <td style={{ width: columnWidths.coverage }} className="px-3 py-3 text-center">{getCoverageBadge(entry.coverage)}</td>
+                                                <td style={{ width: columnWidths.status }} className="px-3 py-3 text-center">{getStatusBadge(entry.status)}</td>
+                                                <td style={{ width: columnWidths.impressions }} className="px-3 py-3 text-right text-xs text-gray-600">{formatNum(entry.metrics.impressions)}</td>
+                                                <td style={{ width: columnWidths.clicks }} className="px-3 py-3 text-right text-xs text-gray-600">{formatNum(entry.metrics.clicks)}</td>
+                                                <td style={{ width: columnWidths.spend }} className="px-3 py-3 text-right text-xs font-medium text-gray-900">${formatNum(entry.metrics.spend, 2)}</td>
+                                                <td style={{ width: columnWidths.sales }} className="px-3 py-3 text-right text-xs font-medium text-gray-900">${formatNum(entry.metrics.sales, 2)}</td>
+                                                <td style={{ width: columnWidths.ctr }} className="px-3 py-3 text-right text-xs text-gray-600">
                                                     {entry.ctr > 0 ? entry.ctr.toFixed(2) + '%' : '-'}
                                                 </td>
-                                                <td className="px-4 py-3 text-right text-xs text-gray-600">
+                                                <td style={{ width: columnWidths.cvr }} className="px-3 py-3 text-right text-xs text-gray-600">
                                                     {entry.convRate > 0 ? entry.convRate.toFixed(2) + '%' : '-'}
                                                 </td>
-                                                <td className={`px-4 py-3 text-right text-xs font-bold ${getAcosColor(entry.acos)}`}>
+                                                <td style={{ width: columnWidths.acos }} className={`px-3 py-3 text-right text-xs font-bold ${getAcosColor(entry.acos)}`}>
                                                     {entry.acos > 0 ? entry.acos.toFixed(1) + '%' : '-'}
                                                 </td>
-                                                <td className="px-4 py-3 text-center">
+                                                <td style={{ width: columnWidths.details }} className="px-3 py-3 text-center">
                                                     <button
                                                         onClick={() => toggleExpand(entry.asin)}
                                                         className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition"
