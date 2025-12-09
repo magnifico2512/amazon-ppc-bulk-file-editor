@@ -5741,23 +5741,25 @@
                     let category = 'Product Targeting';
                     
                     // Auto targeting types (check these first!)
-                    if (expression.includes('queryHighRelMatches')) {
+                    // Amazon bulksheet uses: close-match, loose-match, substitutes, complements
+                    // API uses: queryHighRelMatches, queryBroadRelMatches, etc.
+                    if (expression.includes('close-match') || expression.includes('queryHighRelMatches')) {
                         matchType = 'Auto Close Match';
                         category = 'Auto';
-                    } else if (expression.includes('queryBroadRelMatches')) {
+                    } else if (expression.includes('loose-match') || expression.includes('queryBroadRelMatches')) {
                         matchType = 'Auto Loose Match';
                         category = 'Auto';
-                    } else if (expression.includes('querySubstituteMatches')) {
+                    } else if (expression.includes('substitutes') || expression.includes('querySubstituteMatches')) {
                         matchType = 'Auto Substitutes';
                         category = 'Auto';
-                    } else if (expression.includes('queryComplementMatches')) {
+                    } else if (expression.includes('complements') || expression.includes('queryComplementMatches')) {
                         matchType = 'Auto Complements';
                         category = 'Auto';
                     }
                     // Manual product targeting types
                     else if (expression.includes('category=')) {
                         matchType = 'SP Category';
-                    } else if (expression.includes('asin-expanded=')) {
+                    } else if (expression.includes('asin-expanded=') || expression.includes('expanded-asin=')) {
                         matchType = 'SP Product Expanded';
                     } else if (expression.includes('asin=') || expression.includes('asin"')) {
                         matchType = 'SP Product';
