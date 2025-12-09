@@ -5007,13 +5007,17 @@
             // Portfolio filter state - simple multi-select
             const [selectedPortfolios, setSelectedPortfolios] = useState(new Set());
             const [showPortfolioDropdown, setShowPortfolioDropdown] = useState(false);
+            const [portfolioDropdownPos, setPortfolioDropdownPos] = useState({ top: 0, left: 0 });
+            const portfolioBtnRef = React.useRef(null);
             
             // Campaign checker state (for Custom ASINs mode)
             const [selectedCheckCampaigns, setSelectedCheckCampaigns] = useState(new Set()); // Campaign IDs to check against
             const [showCampaignDropdown, setShowCampaignDropdown] = useState(false);
+            const [campaignDropdownPos, setCampaignDropdownPos] = useState({ top: 0, left: 0 });
             const [selectedAsinRows, setSelectedAsinRows] = useState(new Set()); // Selected ASINs for bulk actions
             const [portfolioSearchTerm, setPortfolioSearchTerm] = useState('');
             const [campaignSearchTerm, setCampaignSearchTerm] = useState('');
+            const campaignBtnRef = React.useRef(null);
             
             const [expandedAsins, setExpandedAsins] = useState(new Set());
             const [expandedMatchTypes, setExpandedMatchTypes] = useState(new Map()); // asin -> Set of matchTypes
@@ -6431,7 +6435,7 @@
                     </div>
                     
                     {/* Filters */}
-                    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 relative" style={{ zIndex: 100 }}>
                         <div className="flex flex-wrap gap-3 items-center">
                             <div className="flex-1 min-w-[200px]">
                                 <input
@@ -6446,7 +6450,15 @@
                             {portfolioList.length > 0 && (
                                 <div className="relative">
                                     <button
-                                        onClick={(e) => { e.stopPropagation(); setShowPortfolioDropdown(!showPortfolioDropdown); }}
+                                        ref={portfolioBtnRef}
+                                        onClick={(e) => { 
+                                            e.stopPropagation(); 
+                                            if (!showPortfolioDropdown && portfolioBtnRef.current) {
+                                                const rect = portfolioBtnRef.current.getBoundingClientRect();
+                                                setPortfolioDropdownPos({ top: rect.bottom + 4, left: rect.left });
+                                            }
+                                            setShowPortfolioDropdown(!showPortfolioDropdown); 
+                                        }}
                                         className={`px-4 py-2 border rounded-lg text-sm font-medium flex items-center gap-2 min-w-[180px] ${
                                             selectedPortfolios.size > 0
                                                 ? 'bg-purple-50 border-purple-300 text-purple-700'
@@ -6464,8 +6476,12 @@
                                     
                                     {showPortfolioDropdown && (
                                         <div 
-                                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl w-80 dropdown-animate"
-                                            style={{ zIndex: 9999 }}
+                                            className="fixed bg-white border border-gray-200 rounded-lg shadow-2xl w-80 dropdown-animate"
+                                            style={{ 
+                                                zIndex: 99999,
+                                                top: portfolioDropdownPos.top + 'px',
+                                                left: portfolioDropdownPos.left + 'px'
+                                            }}
                                             onClick={(e) => e.stopPropagation()}
                                         >
                                             {/* Search Input */}
@@ -6538,7 +6554,15 @@
                             {mode === 'custom' && (
                                 <div className="relative">
                                     <button
-                                        onClick={(e) => { e.stopPropagation(); setShowCampaignDropdown(!showCampaignDropdown); }}
+                                        ref={campaignBtnRef}
+                                        onClick={(e) => { 
+                                            e.stopPropagation(); 
+                                            if (!showCampaignDropdown && campaignBtnRef.current) {
+                                                const rect = campaignBtnRef.current.getBoundingClientRect();
+                                                setCampaignDropdownPos({ top: rect.bottom + 4, left: rect.left });
+                                            }
+                                            setShowCampaignDropdown(!showCampaignDropdown); 
+                                        }}
                                         className={`px-4 py-2 border rounded-lg text-sm font-medium flex items-center gap-2 min-w-[180px] ${
                                             selectedCheckCampaigns.size > 0
                                                 ? 'bg-orange-50 border-orange-300 text-orange-700'
@@ -6556,8 +6580,12 @@
                                     
                                     {showCampaignDropdown && (
                                         <div 
-                                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl w-[420px] dropdown-animate"
-                                            style={{ zIndex: 9999 }}
+                                            className="fixed bg-white border border-gray-200 rounded-lg shadow-2xl w-[420px] dropdown-animate"
+                                            style={{ 
+                                                zIndex: 99999,
+                                                top: campaignDropdownPos.top + 'px',
+                                                left: campaignDropdownPos.left + 'px'
+                                            }}
                                             onClick={(e) => e.stopPropagation()}
                                         >
                                             {/* Info header */}
