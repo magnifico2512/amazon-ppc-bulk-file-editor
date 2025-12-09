@@ -1014,6 +1014,14 @@
             const [productTargetFilters, setProductTargetFilters] = useState({}); // { adGroupId: { state: '', acos: '', clicks: '', search: '' } }
             
             // ========================================
+            // ASIN COVERAGE STATE (lifted from ASINCoverageView for persistence)
+            // ========================================
+            const [asinCoverageMode, setAsinCoverageMode] = useState('analysis');
+            const [customAsins, setCustomAsins] = useState([]);
+            const [customAsinsRaw, setCustomAsinsRaw] = useState('');
+            const [customColumns, setCustomColumns] = useState([]);
+            
+            // ========================================
             // LOADING & PERFORMANCE STATES
             // ========================================
             const [isLoading, setIsLoading] = useState(false);
@@ -3371,7 +3379,18 @@
                                     {/* Data Table or Coverage View */}
                                     {data.length > 0 ? (
                                         activeTab === 'coverage' ? (
-                                            <ASINCoverageView data={getFilteredData()} allData={data} />
+                                            <ASINCoverageView 
+                                                data={getFilteredData()} 
+                                                allData={data}
+                                                mode={asinCoverageMode}
+                                                setMode={setAsinCoverageMode}
+                                                customAsins={customAsins}
+                                                setCustomAsins={setCustomAsins}
+                                                customAsinsRaw={customAsinsRaw}
+                                                setCustomAsinsRaw={setCustomAsinsRaw}
+                                                customColumns={customColumns}
+                                                setCustomColumns={setCustomColumns}
+                                            />
                                         ) : activeTab === 'matchtypes' ? (
                                             <MatchTypeCoverageView data={getFilteredData()} allData={data} />
                                         ) : (
@@ -4970,7 +4989,18 @@
         }
 
         // ASIN Coverage Analyzer Component
-        function ASINCoverageView({ data, allData }) {
+        function ASINCoverageView({ 
+            data, 
+            allData, 
+            mode, 
+            setMode, 
+            customAsins, 
+            setCustomAsins, 
+            customAsinsRaw, 
+            setCustomAsinsRaw,
+            customColumns,
+            setCustomColumns
+        }) {
             const [searchTerm, setSearchTerm] = useState('');
             const [statusFilter, setStatusFilter] = useState('all');
             const [coverageFilter, setCoverageFilter] = useState('all');
@@ -4980,12 +5010,8 @@
             const [expandedMatchTypes, setExpandedMatchTypes] = useState(new Map()); // asin -> Set of matchTypes
             const [expandedCampaigns, setExpandedCampaigns] = useState(new Map()); // "asin-matchType" -> Set of campaignIds
             
-            // Mode toggle: 'analysis' = use Product Ads ASINs, 'custom' = use imported ASINs
-            const [mode, setMode] = useState('analysis');
+            // Import modal state (local, modal can reset)
             const [showImportModal, setShowImportModal] = useState(false);
-            const [customAsinsRaw, setCustomAsinsRaw] = useState('');
-            const [customAsins, setCustomAsins] = useState([]); // [{ asin, parentAsin?, title?, ...customFields }]
-            const [customColumns, setCustomColumns] = useState([]); // detected columns from import
             
             // Match type filter state: { mustHave: Set, mustBeMissing: Set }
             const [matchTypeFilter, setMatchTypeFilter] = useState({ mustHave: new Set(), mustBeMissing: new Set() });
