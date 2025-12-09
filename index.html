@@ -5185,6 +5185,7 @@
                 // Third pass: Process Product Targeting
                 allData.filter(r => r.Entity === 'Product Targeting').forEach(row => {
                     const adGroupId = row['Ad Group ID'];
+                    const campaignId = row['Campaign ID'];
                     const expression = row['Product Targeting Expression'] || '';
                     const state = (row.State || '').toLowerCase();
                     
