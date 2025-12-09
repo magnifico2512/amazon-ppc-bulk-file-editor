@@ -5004,9 +5004,8 @@
             const [searchTerm, setSearchTerm] = useState('');
             const [sortConfig, setSortConfig] = useState({ key: 'spend', direction: 'desc' });
             
-            // Portfolio filter state - multi-select with presence mode
+            // Portfolio filter state - simple multi-select
             const [selectedPortfolios, setSelectedPortfolios] = useState(new Set());
-            const [portfolioPresenceMode, setPortfolioPresenceMode] = useState('existing'); // 'existing', 'missing', 'both'
             const [showPortfolioDropdown, setShowPortfolioDropdown] = useState(false);
             const [expandedAsins, setExpandedAsins] = useState(new Set());
             const [expandedMatchTypes, setExpandedMatchTypes] = useState(new Map()); // asin -> Set of matchTypes
@@ -6001,25 +6000,11 @@
                 // Status filter (and In Campaigns filter for custom mode)
                 // Note: Status and Coverage filtering now handled by table column filters
                 
-                // Portfolio filter - multi-select with presence mode
+                // Portfolio filter - simple multi-select
                 if (selectedPortfolios.size > 0) {
                     result = result.filter(entry => {
                         const entryPortfolio = entry.portfolio || '';
-                        const isInSelected = selectedPortfolios.has(entryPortfolio);
-                        
-                        switch (portfolioPresenceMode) {
-                            case 'existing':
-                                // Show ASINs that exist in selected portfolios
-                                return isInSelected;
-                            case 'missing':
-                                // Show ASINs that are NOT in selected portfolios
-                                return !isInSelected;
-                            case 'both':
-                            default:
-                                // Show all ASINs but filter to those related to selected portfolios somehow
-                                // For 'both', we show all ASINs (no portfolio filtering)
-                                return true;
-                        }
+                        return selectedPortfolios.has(entryPortfolio);
                     });
                 }
                 
@@ -6110,7 +6095,7 @@
                 });
                 
                 return result;
-            }, [activeData, searchTerm, selectedPortfolios, portfolioPresenceMode, matchTypeFilter, columnFilters, textColumnFilters, sortConfig]);
+            }, [activeData, searchTerm, selectedPortfolios, matchTypeFilter, columnFilters, textColumnFilters, sortConfig]);
             
             // Summary stats
             const summaryStats = useMemo(() => {
@@ -6403,46 +6388,9 @@
                                     
                                     {showPortfolioDropdown && (
                                         <div 
-                                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 w-80 dropdown-animate"
+                                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 w-72 dropdown-animate"
                                             onClick={(e) => e.stopPropagation()}
                                         >
-                                            {/* Presence Mode Selector */}
-                                            <div className="p-3 border-b border-gray-200 bg-gray-50 rounded-t-lg">
-                                                <div className="text-xs font-medium text-gray-600 mb-2">Show ASINs that are:</div>
-                                                <div className="flex gap-1">
-                                                    <button
-                                                        onClick={() => setPortfolioPresenceMode('existing')}
-                                                        className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                                                            portfolioPresenceMode === 'existing'
-                                                                ? 'bg-green-100 text-green-700 border border-green-300'
-                                                                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-                                                        }`}
-                                                    >
-                                                        ✓ In Selected
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setPortfolioPresenceMode('missing')}
-                                                        className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                                                            portfolioPresenceMode === 'missing'
-                                                                ? 'bg-red-100 text-red-700 border border-red-300'
-                                                                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-                                                        }`}
-                                                    >
-                                                        ✗ Not In Selected
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setPortfolioPresenceMode('both')}
-                                                        className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                                                            portfolioPresenceMode === 'both'
-                                                                ? 'bg-blue-100 text-blue-700 border border-blue-300'
-                                                                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-                                                        }`}
-                                                    >
-                                                        All
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            
                                             {/* Portfolio List */}
                                             <div className="max-h-64 overflow-y-auto p-2">
                                                 {portfolioList.map(portfolio => (
