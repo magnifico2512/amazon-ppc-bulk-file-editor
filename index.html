@@ -5007,6 +5007,12 @@
             // Portfolio filter state - simple multi-select
             const [selectedPortfolios, setSelectedPortfolios] = useState(new Set());
             const [showPortfolioDropdown, setShowPortfolioDropdown] = useState(false);
+            
+            // Campaign checker state (for Custom ASINs mode)
+            const [selectedCheckCampaigns, setSelectedCheckCampaigns] = useState(new Set()); // Campaign IDs to check against
+            const [showCampaignDropdown, setShowCampaignDropdown] = useState(false);
+            const [selectedAsinRows, setSelectedAsinRows] = useState(new Set()); // Selected ASINs for bulk actions
+            
             const [expandedAsins, setExpandedAsins] = useState(new Set());
             const [expandedMatchTypes, setExpandedMatchTypes] = useState(new Map()); // asin -> Set of matchTypes
             const [expandedCampaigns, setExpandedCampaigns] = useState(new Map()); // "asin-matchType" -> Set of campaignIds
@@ -5525,6 +5531,15 @@
                 }
             }, [showPortfolioDropdown]);
             
+            // Close campaign dropdown when clicking outside
+            useEffect(() => {
+                const handleClickOutside = () => setShowCampaignDropdown(false);
+                if (showCampaignDropdown) {
+                    document.addEventListener('click', handleClickOutside);
+                    return () => document.removeEventListener('click', handleClickOutside);
+                }
+            }, [showCampaignDropdown]);
+            
             // Close filter popup when clicking outside
             useEffect(() => {
                 const handleClickOutside = () => setActiveFilterColumn(null);
@@ -5941,6 +5956,65 @@
                 });
                 return Array.from(portfolios).sort();
             }, [activeData]);
+            
+            // Get all campaigns from allData, filtered by selected portfolios
+            const campaignList = useMemo(() => {
+                const campaignMap = new Map();
+                allData.forEach(row => {
+                    if (row.Entity === 'Campaign' && row['Campaign ID']) {
+                        const portfolio = row['Portfolio Name (Informational only)'] || '';
+                        // If portfolios selected, filter by them
+                        if (selectedPortfolios.size === 0 || selectedPortfolios.has(portfolio)) {
+                            campaignMap.set(row['Campaign ID'], {
+                                id: row['Campaign ID'],
+                                name: row['Campaign Name'] || row['Campaign Name (Informational only)'] || row['Campaign ID'],
+                                portfolio: portfolio,
+                                state: row.State || row['Campaign State (Informational only)'] || ''
+                            });
+                        }
+                    }
+                });
+                return Array.from(campaignMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+            }, [allData, selectedPortfolios]);
+            
+            // Build ASIN status per selected campaign (for Custom ASINs mode)
+            const asinCampaignStatus = useMemo(() => {
+                if (mode !== 'custom' || selectedCheckCampaigns.size === 0) return new Map();
+                
+                // Build a map: ASIN -> Campaign ID -> { status, adGroupId, adGroupName, rowIndex }
+                const statusMap = new Map();
+                
+                // Initialize all custom ASINs
+                customAsins.forEach(ca => {
+                    statusMap.set(ca.asin, new Map());
+                });
+                
+                // Scan all Product Ads in the data
+                allData.forEach((row, rowIndex) => {
+                    if (row.Entity === 'Product Ad') {
+                        const asin = row['ASIN (Informational only)'];
+                        const campaignId = row['Campaign ID'];
+                        const state = row.State || '';
+                        
+                        if (asin && selectedCheckCampaigns.has(campaignId) && statusMap.has(asin)) {
+                            const asinMap = statusMap.get(asin);
+                            // Store the status (prefer enabled over paused if multiple)
+                            const existing = asinMap.get(campaignId);
+                            if (!existing || (state === 'enabled' && existing.status !== 'enabled')) {
+                                asinMap.set(campaignId, {
+                                    status: state,
+                                    adGroupId: row['Ad Group ID'],
+                                    adGroupName: row['Ad Group Name'] || row['Ad Group Name (Informational only)'] || '',
+                                    sku: row.SKU || '',
+                                    rowIndex: rowIndex
+                                });
+                            }
+                        }
+                    }
+                });
+                
+                return statusMap;
+            }, [mode, customAsins, allData, selectedCheckCampaigns]);
             
             // Get all unique match types across all ASINs
             const allMatchTypesList = useMemo(() => {
@@ -6440,6 +6514,107 @@
                                 </div>
                             )}
                             
+                            {/* Campaign Selector - Only in Custom ASINs mode */}
+                            {mode === 'custom' && (
+                                <div className="relative">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setShowCampaignDropdown(!showCampaignDropdown); }}
+                                        className={`px-4 py-2 border rounded-lg text-sm font-medium flex items-center gap-2 min-w-[180px] ${
+                                            selectedCheckCampaigns.size > 0
+                                                ? 'bg-orange-50 border-orange-300 text-orange-700'
+                                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        <span>📢</span>
+                                        {selectedCheckCampaigns.size === 0 
+                                            ? 'Select Campaigns' 
+                                            : `${selectedCheckCampaigns.size} Campaign${selectedCheckCampaigns.size > 1 ? 's' : ''}`}
+                                        <svg className={`w-4 h-4 ml-auto transition-transform ${showCampaignDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                    </button>
+                                    
+                                    {showCampaignDropdown && (
+                                        <div 
+                                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 w-96 dropdown-animate"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            {/* Info header */}
+                                            {selectedPortfolios.size > 0 && (
+                                                <div className="px-3 py-2 bg-purple-50 text-xs text-purple-700 border-b border-gray-200">
+                                                    Showing campaigns from {selectedPortfolios.size} selected portfolio{selectedPortfolios.size > 1 ? 's' : ''}
+                                                </div>
+                                            )}
+                                            
+                                            {/* Campaign List */}
+                                            <div className="max-h-64 overflow-y-auto p-2">
+                                                {campaignList.length === 0 ? (
+                                                    <div className="text-sm text-gray-500 text-center py-4">
+                                                        {selectedPortfolios.size > 0 
+                                                            ? 'No campaigns in selected portfolios'
+                                                            : 'No campaigns found'}
+                                                    </div>
+                                                ) : (
+                                                    campaignList.map(campaign => (
+                                                        <label 
+                                                            key={campaign.id} 
+                                                            className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded-md cursor-pointer"
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedCheckCampaigns.has(campaign.id)}
+                                                                onChange={(e) => {
+                                                                    const newSelected = new Set(selectedCheckCampaigns);
+                                                                    if (e.target.checked) {
+                                                                        newSelected.add(campaign.id);
+                                                                    } else {
+                                                                        newSelected.delete(campaign.id);
+                                                                    }
+                                                                    setSelectedCheckCampaigns(newSelected);
+                                                                }}
+                                                                className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                                                            />
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="text-sm text-gray-700 truncate">{campaign.name}</div>
+                                                                {campaign.portfolio && (
+                                                                    <div className="text-xs text-gray-400 truncate">{campaign.portfolio}</div>
+                                                                )}
+                                                            </div>
+                                                            <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                                                campaign.state === 'enabled' 
+                                                                    ? 'bg-green-100 text-green-700' 
+                                                                    : 'bg-gray-100 text-gray-500'
+                                                            }`}>
+                                                                {campaign.state || 'unknown'}
+                                                            </span>
+                                                        </label>
+                                                    ))
+                                                )}
+                                            </div>
+                                            
+                                            {/* Footer Actions */}
+                                            <div className="p-2 border-t border-gray-200 flex gap-2">
+                                                <button
+                                                    onClick={() => setSelectedCheckCampaigns(new Set(campaignList.map(c => c.id)))}
+                                                    className="flex-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md"
+                                                >
+                                                    Select All
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedCheckCampaigns(new Set());
+                                                        setShowCampaignDropdown(false);
+                                                    }}
+                                                    className="flex-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md"
+                                                >
+                                                    Clear All
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            
                             {/* Match Type Filter Button */}
                             <div className="relative">
                                 <button
@@ -6638,12 +6813,167 @@
                     {/* Text Column Filter Popup */}
                     {activeTextFilterColumn && <TextColumnFilterPopup column={activeTextFilterColumn} onClose={() => setActiveTextFilterColumn(null)} />}
                     
+                    {/* Campaign Checker Action Bar - Only shows when campaigns selected in custom mode */}
+                    {mode === 'custom' && selectedCheckCampaigns.size > 0 && (
+                        <div className="bg-orange-50 rounded-xl p-4 shadow-sm border border-orange-200 mb-4">
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="text-sm text-orange-800">
+                                        <span className="font-medium">Campaign Checker:</span> Checking {customAsins.length} ASINs in {selectedCheckCampaigns.size} campaign{selectedCheckCampaigns.size > 1 ? 's' : ''}
+                                    </div>
+                                    {selectedAsinRows.size > 0 && (
+                                        <div className="text-sm bg-orange-100 px-2 py-1 rounded text-orange-700 font-medium">
+                                            {selectedAsinRows.size} ASIN{selectedAsinRows.size > 1 ? 's' : ''} selected
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            if (selectedAsinRows.size === filteredData.length) {
+                                                setSelectedAsinRows(new Set());
+                                            } else {
+                                                setSelectedAsinRows(new Set(filteredData.map(d => d.asin)));
+                                            }
+                                        }}
+                                        className="px-3 py-1.5 text-xs font-medium border border-orange-300 text-orange-700 rounded-lg hover:bg-orange-100 transition"
+                                    >
+                                        {selectedAsinRows.size === filteredData.length ? 'Deselect All' : 'Select All'}
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            // Enable selected ASINs in selected campaigns
+                                            if (selectedAsinRows.size === 0) {
+                                                alert('Please select ASINs first');
+                                                return;
+                                            }
+                                            let count = 0;
+                                            selectedAsinRows.forEach(asin => {
+                                                const campaignStatuses = asinCampaignStatus.get(asin);
+                                                if (campaignStatuses) {
+                                                    campaignStatuses.forEach((info, campaignId) => {
+                                                        if (info.status === 'paused' && info.rowIndex !== undefined) {
+                                                            // Update the row state
+                                                            const newData = [...allData];
+                                                            newData[info.rowIndex] = { ...newData[info.rowIndex], State: 'enabled' };
+                                                            // This requires access to setData from parent - we'll need to pass it as prop
+                                                            count++;
+                                                        }
+                                                    });
+                                                }
+                                            });
+                                            if (count > 0) {
+                                                alert(`Enable action needs to be implemented with setData prop. Would enable ${count} product ads.`);
+                                            } else {
+                                                alert('No paused ASINs found in selected campaigns');
+                                            }
+                                        }}
+                                        disabled={selectedAsinRows.size === 0}
+                                        className={`px-3 py-1.5 text-xs font-medium rounded-lg transition flex items-center gap-1 ${
+                                            selectedAsinRows.size > 0
+                                                ? 'bg-green-600 text-white hover:bg-green-700'
+                                                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                        }`}
+                                    >
+                                        ✓ Enable
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (selectedAsinRows.size === 0) {
+                                                alert('Please select ASINs first');
+                                                return;
+                                            }
+                                            alert('Pause action - would pause selected product ads');
+                                        }}
+                                        disabled={selectedAsinRows.size === 0}
+                                        className={`px-3 py-1.5 text-xs font-medium rounded-lg transition flex items-center gap-1 ${
+                                            selectedAsinRows.size > 0
+                                                ? 'bg-yellow-500 text-white hover:bg-yellow-600'
+                                                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                        }`}
+                                    >
+                                        ⏸ Pause
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (selectedAsinRows.size === 0) {
+                                                alert('Please select ASINs first');
+                                                return;
+                                            }
+                                            // Count missing ASINs
+                                            let missingCount = 0;
+                                            selectedAsinRows.forEach(asin => {
+                                                const campaignStatuses = asinCampaignStatus.get(asin);
+                                                selectedCheckCampaigns.forEach(campaignId => {
+                                                    if (!campaignStatuses || !campaignStatuses.has(campaignId)) {
+                                                        missingCount++;
+                                                    }
+                                                });
+                                            });
+                                            if (missingCount > 0) {
+                                                alert(`Add Missing action - would add ${missingCount} product ads to campaigns`);
+                                            } else {
+                                                alert('All selected ASINs already exist in selected campaigns');
+                                            }
+                                        }}
+                                        disabled={selectedAsinRows.size === 0}
+                                        className={`px-3 py-1.5 text-xs font-medium rounded-lg transition flex items-center gap-1 ${
+                                            selectedAsinRows.size > 0
+                                                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                        }`}
+                                    >
+                                        + Add Missing
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            {/* Campaign columns legend */}
+                            <div className="mt-3 pt-3 border-t border-orange-200 flex flex-wrap gap-2 items-center text-xs">
+                                <span className="text-orange-700 font-medium">Checking in:</span>
+                                {Array.from(selectedCheckCampaigns).map(campaignId => {
+                                    const campaign = campaignList.find(c => c.id === campaignId);
+                                    return campaign ? (
+                                        <span key={campaignId} className="px-2 py-1 bg-orange-100 text-orange-700 rounded flex items-center gap-1">
+                                            {campaign.name.length > 30 ? campaign.name.substring(0, 30) + '...' : campaign.name}
+                                            <button 
+                                                onClick={() => {
+                                                    const newSelected = new Set(selectedCheckCampaigns);
+                                                    newSelected.delete(campaignId);
+                                                    setSelectedCheckCampaigns(newSelected);
+                                                }}
+                                                className="hover:text-orange-900 ml-1"
+                                            >✕</button>
+                                        </span>
+                                    ) : null;
+                                })}
+                            </div>
+                        </div>
+                    )}
+                    
                     {/* Data Table */}
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                         <div className="overflow-x-auto" style={{ maxHeight: '60vh' }}>
                             <table className="text-sm" style={{ minWidth: '100%' }}>
                                 <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
                                     <tr>
+                                        {/* Checkbox column for campaign checker mode */}
+                                        {mode === 'custom' && selectedCheckCampaigns.size > 0 && (
+                                            <th className="px-3 py-3 text-center w-10">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedAsinRows.size === filteredData.length && filteredData.length > 0}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedAsinRows(new Set(filteredData.map(d => d.asin)));
+                                                        } else {
+                                                            setSelectedAsinRows(new Set());
+                                                        }
+                                                    }}
+                                                    className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                                                />
+                                            </th>
+                                        )}
                                         <th style={{ width: columnWidths.asin, minWidth: columnWidths.asin }} className="relative group px-3 py-3 text-left font-medium text-gray-700">
                                             <div className="flex items-center gap-1">
                                                 <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('asin')}>
@@ -6836,12 +7166,44 @@
                                             <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
                                                 onMouseDown={(e) => handleResizeStart(e, 'details')} />
                                         </th>
+                                        {/* Campaign status columns when campaigns selected */}
+                                        {mode === 'custom' && selectedCheckCampaigns.size > 0 && (
+                                            Array.from(selectedCheckCampaigns).map(campaignId => {
+                                                const campaign = campaignList.find(c => c.id === campaignId);
+                                                return (
+                                                    <th key={campaignId} className="px-3 py-3 text-center font-medium text-gray-700 bg-orange-50 min-w-[100px]">
+                                                        <div className="text-xs truncate max-w-[120px]" title={campaign?.name || campaignId}>
+                                                            {campaign?.name ? (campaign.name.length > 15 ? campaign.name.substring(0, 15) + '...' : campaign.name) : campaignId}
+                                                        </div>
+                                                    </th>
+                                                );
+                                            })
+                                        )}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {filteredData.map((entry) => (
                                         <React.Fragment key={entry.asin}>
-                                            <tr className={`hover:bg-gray-50 transition ${mode === 'custom' && !entry.inCampaigns ? 'bg-red-50/30' : ''}`}>
+                                            <tr className={`hover:bg-gray-50 transition ${mode === 'custom' && !entry.inCampaigns ? 'bg-red-50/30' : ''} ${selectedAsinRows.has(entry.asin) ? 'bg-orange-50' : ''}`}>
+                                                {/* Checkbox cell for campaign checker mode */}
+                                                {mode === 'custom' && selectedCheckCampaigns.size > 0 && (
+                                                    <td className="px-3 py-3 text-center">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedAsinRows.has(entry.asin)}
+                                                            onChange={(e) => {
+                                                                const newSelected = new Set(selectedAsinRows);
+                                                                if (e.target.checked) {
+                                                                    newSelected.add(entry.asin);
+                                                                } else {
+                                                                    newSelected.delete(entry.asin);
+                                                                }
+                                                                setSelectedAsinRows(newSelected);
+                                                            }}
+                                                            className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                                                        />
+                                                    </td>
+                                                )}
                                                 <td style={{ width: columnWidths.asin }} className="px-3 py-3 font-mono text-xs font-medium text-gray-900">{entry.asin}</td>
                                                 {mode === 'custom' && customColumns.includes('parentAsin') && (
                                                     <td style={{ width: columnWidths.parentAsin }} className="px-3 py-3 font-mono text-xs text-gray-600">
@@ -6887,10 +7249,36 @@
                                                         {expandedAsins.has(entry.asin) ? '▲ Less' : '▼ More'}
                                                     </button>
                                                 </td>
+                                                {/* Campaign status cells when campaigns selected */}
+                                                {mode === 'custom' && selectedCheckCampaigns.size > 0 && (
+                                                    Array.from(selectedCheckCampaigns).map(campaignId => {
+                                                        const campaignStatuses = asinCampaignStatus.get(entry.asin);
+                                                        const statusInfo = campaignStatuses?.get(campaignId);
+                                                        return (
+                                                            <td key={campaignId} className="px-3 py-3 text-center bg-orange-50/30">
+                                                                {statusInfo ? (
+                                                                    statusInfo.status === 'enabled' ? (
+                                                                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700" title={`Ad Group: ${statusInfo.adGroupName}`}>
+                                                                            ✓ Active
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700" title={`Ad Group: ${statusInfo.adGroupName}`}>
+                                                                            ⏸ Paused
+                                                                        </span>
+                                                                    )
+                                                                ) : (
+                                                                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                                                                        ✗ Missing
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                        );
+                                                    })
+                                                )}
                                             </tr>
                                             {expandedAsins.has(entry.asin) && (
                                                 <tr>
-                                                    <td colSpan={12 + (mode === 'custom' ? 1 + (customColumns.includes('parentAsin') ? 1 : 0) + (customColumns.includes('title') ? 1 : 0) : 0)} className="px-4 py-4 bg-gray-50">
+                                                    <td colSpan={12 + (mode === 'custom' ? 1 + (customColumns.includes('parentAsin') ? 1 : 0) + (customColumns.includes('title') ? 1 : 0) + (selectedCheckCampaigns.size > 0 ? 1 + selectedCheckCampaigns.size : 0) : 0)} className="px-4 py-4 bg-gray-50">
                                                         <div className="space-y-4">
                                                             {/* ASIN Info Header */}
                                                             <div className="flex items-center gap-4 text-sm flex-wrap">
