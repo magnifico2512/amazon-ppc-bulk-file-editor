@@ -5731,20 +5731,45 @@
                     });
                 });
                 
-                // Process Product Targeting (SP Product, SP Category, etc.)
+                // Process Product Targeting (SP Product, SP Category, Auto types, etc.)
                 allData.filter(r => r.Entity === 'Product Targeting').forEach(row => {
                     const expression = row['Product Targeting Expression'] || '';
                     const state = (row.State || '').toLowerCase();
                     
-                    // Determine targeting type
-                    let matchType = 'SP Product';
-                    if (expression.includes('category=')) matchType = 'SP Category';
-                    else if (expression.includes('asin-expanded=')) matchType = 'SP Product Expanded';
+                    // Determine targeting type - check Auto types FIRST
+                    let matchType = null;
+                    let category = 'Product Targeting';
+                    
+                    // Auto targeting types (check these first!)
+                    if (expression.includes('queryHighRelMatches')) {
+                        matchType = 'Auto Close Match';
+                        category = 'Auto';
+                    } else if (expression.includes('queryBroadRelMatches')) {
+                        matchType = 'Auto Loose Match';
+                        category = 'Auto';
+                    } else if (expression.includes('querySubstituteMatches')) {
+                        matchType = 'Auto Substitutes';
+                        category = 'Auto';
+                    } else if (expression.includes('queryComplementMatches')) {
+                        matchType = 'Auto Complements';
+                        category = 'Auto';
+                    }
+                    // Manual product targeting types
+                    else if (expression.includes('category=')) {
+                        matchType = 'SP Category';
+                    } else if (expression.includes('asin-expanded=')) {
+                        matchType = 'SP Product Expanded';
+                    } else if (expression.includes('asin=') || expression.includes('asin"')) {
+                        matchType = 'SP Product';
+                    } else {
+                        // Skip unknown expressions
+                        return;
+                    }
                     
                     if (!matchTypeMap.has(matchType)) {
                         matchTypeMap.set(matchType, {
                             matchType,
-                            category: 'Product Targeting',
+                            category: category,
                             metrics: { impressions: 0, clicks: 0, orders: 0, units: 0, spend: 0, sales: 0 },
                             activeAsins: new Set(),
                             pausedAsins: new Map(),
@@ -5794,67 +5819,6 @@
                             });
                         }
                     });
-                });
-                
-                // Process Auto Campaign Targeting Types
-                allData.filter(r => r.Entity === 'Product Targeting' || r.Entity === 'Keyword').forEach(row => {
-                    const campaignName = getCampaignName(row).toLowerCase();
-                    const expression = row['Product Targeting Expression'] || '';
-                    
-                    // Detect Auto campaign match types from targeting expression
-                    let autoMatchType = null;
-                    if (expression.includes('queryHighRelMatches')) autoMatchType = 'Auto Close Match';
-                    else if (expression.includes('queryBroadRelMatches')) autoMatchType = 'Auto Loose Match';
-                    else if (expression.includes('querySubstituteMatches')) autoMatchType = 'Auto Substitutes';
-                    else if (expression.includes('queryComplementMatches')) autoMatchType = 'Auto Complements';
-                    
-                    if (autoMatchType) {
-                        const state = (row.State || '').toLowerCase();
-                        
-                        if (!matchTypeMap.has(autoMatchType)) {
-                            matchTypeMap.set(autoMatchType, {
-                                matchType: autoMatchType,
-                                category: 'Auto',
-                                metrics: { impressions: 0, clicks: 0, orders: 0, units: 0, spend: 0, sales: 0 },
-                                activeAsins: new Set(),
-                                pausedAsins: new Map(),
-                                locations: []
-                            });
-                        }
-                        
-                        const entry = matchTypeMap.get(autoMatchType);
-                        entry.metrics.impressions += parseNum(row.Impressions);
-                        entry.metrics.clicks += parseNum(row.Clicks);
-                        entry.metrics.orders += parseNum(row.Orders);
-                        entry.metrics.units += parseNum(row.Units);
-                        entry.metrics.spend += parseNum(row.Spend);
-                        entry.metrics.sales += parseNum(row.Sales);
-                        
-                        // Find ASINs in the same ad group
-                        const adGroupId = row['Ad Group ID'];
-                        const relatedProductAds = allData.filter(r => 
-                            r.Entity === 'Product Ad' && 
-                            r['Ad Group ID'] === adGroupId
-                        );
-                        
-                        relatedProductAds.forEach(pa => {
-                            const paAsin = (pa['ASIN (Informational only)'] || '').toUpperCase();
-                            if (paAsin && paAsin.length === 10) {
-                                if (state === 'enabled') {
-                                    entry.activeAsins.add(paAsin);
-                                } else if (state === 'paused') {
-                                    if (!entry.pausedAsins.has(paAsin)) {
-                                        entry.pausedAsins.set(paAsin, []);
-                                    }
-                                    entry.pausedAsins.get(paAsin).push({
-                                        campaign: getCampaignName(row),
-                                        adGroup: getAdGroupName(row),
-                                        expression: expression
-                                    });
-                                }
-                            }
-                        });
-                    }
                 });
                 
                 // Calculate derived metrics and coverage gaps
