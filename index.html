@@ -3032,7 +3032,8 @@
                                         { id: 'keywords', label: 'Keywords', icon: '🔑', count: data.filter(r => r.Entity === 'Keyword').length },
                                         { id: 'targeting', label: 'Targeting', icon: '🎯', count: data.filter(r => r.Entity === 'Product Targeting').length },
                                         { id: 'negative', label: 'Negatives', icon: '🚫', count: data.filter(r => r.Entity === 'Negative Keyword' || r.Entity === 'Campaign Negative Keyword').length },
-                                        { id: 'coverage', label: 'Coverage', icon: '📊', count: (() => { const asins = new Set(); data.forEach(r => { if (r.Entity === 'Product Ad' && r['ASIN (Informational only)']) asins.add(r['ASIN (Informational only)']); if (r.Entity === 'Product Targeting') { const m = (r['Product Targeting Expression'] || '').match(/asin[^"]*"([A-Z0-9]{10})"/i); if (m) asins.add(m[1]); } }); return asins.size; })() },
+                                        { id: 'matchtypes', label: 'Match Types', icon: '🔀', count: (() => { const types = new Set(); data.forEach(r => { if (r['Match Type']) types.add(r['Match Type']); }); return types.size; })() },
+                                        { id: 'coverage', label: 'ASIN Coverage', icon: '📊', count: (() => { const asins = new Set(); data.forEach(r => { if (r.Entity === 'Product Ad' && r['ASIN (Informational only)']) asins.add(r['ASIN (Informational only)']); if (r.Entity === 'Product Targeting') { const m = (r['Product Targeting Expression'] || '').match(/asin[^"]*"([A-Z0-9]{10})"/i); if (m) asins.add(m[1]); } }); return asins.size; })() },
                                         { id: 'changes', label: 'Changes', icon: '✏️', count: changes.length }
                                     ].map(tab => (
                                         <button
@@ -3371,6 +3372,8 @@
                                     {data.length > 0 ? (
                                         activeTab === 'coverage' ? (
                                             <ASINCoverageView data={getFilteredData()} allData={data} />
+                                        ) : activeTab === 'matchtypes' ? (
+                                            <MatchTypeCoverageView data={getFilteredData()} allData={data} />
                                         ) : (
                                         <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
                                             {showReferencePanel && (referenceKeywords || referenceProducts) && (
@@ -5571,6 +5574,800 @@
                                     <div className="text-sm">Try adjusting your filters or upload a bulksheet with Product Ads/Targeting</div>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================
+        // MATCH TYPE COVERAGE VIEW - ROI-Focused Analysis
+        // ============================================
+        function MatchTypeCoverageView({ data, allData }) {
+            const [searchTerm, setSearchTerm] = useState('');
+            const [sortConfig, setSortConfig] = useState({ key: 'spend', direction: 'desc' });
+            const [expandedMatchTypes, setExpandedMatchTypes] = useState(new Set());
+            const [selectedColumn, setSelectedColumn] = useState(null);
+            const [showColumnSelector, setShowColumnSelector] = useState(false);
+            
+            // All available columns
+            const allColumns = [
+                { key: 'matchType', label: 'Match Type', sortable: true },
+                { key: 'impressions', label: 'Impressions', sortable: true, format: 'number' },
+                { key: 'clicks', label: 'Clicks', sortable: true, format: 'number' },
+                { key: 'orders', label: 'Orders', sortable: true, format: 'number' },
+                { key: 'units', label: 'Units', sortable: true, format: 'number' },
+                { key: 'sales', label: 'Sales', sortable: true, format: 'currency' },
+                { key: 'spend', label: 'Spend', sortable: true, format: 'currency' },
+                { key: 'cpc', label: 'CPC', sortable: true, format: 'currency' },
+                { key: 'ctr', label: 'CTR', sortable: true, format: 'percent' },
+                { key: 'acos', label: 'ACOS', sortable: true, format: 'percent' },
+                { key: 'roas', label: 'ROAS', sortable: true, format: 'decimal' },
+                { key: 'convRate', label: 'Conversion', sortable: true, format: 'percent' },
+            ];
+            
+            const [visibleColumns, setVisibleColumns] = useState([
+                'matchType', 'impressions', 'clicks', 'orders', 'units', 'sales', 'spend', 'cpc', 'ctr', 'acos', 'roas'
+            ]);
+            
+            // Parse number helper (handles European format)
+            const parseNum = (val) => {
+                if (val === null || val === undefined || val === '') return 0;
+                const str = String(val).replace(/[^0-9.,-]/g, '');
+                if (str.includes(',') && str.includes('.')) {
+                    if (str.lastIndexOf(',') > str.lastIndexOf('.')) {
+                        return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
+                    }
+                    return parseFloat(str.replace(/,/g, '')) || 0;
+                }
+                if (str.includes(',') && !str.includes('.')) {
+                    const parts = str.split(',');
+                    if (parts.length === 2 && parts[1].length <= 2) {
+                        return parseFloat(str.replace(',', '.')) || 0;
+                    }
+                    return parseFloat(str.replace(/,/g, '')) || 0;
+                }
+                return parseFloat(str) || 0;
+            };
+            
+            // Get helpers
+            const getCampaignName = (row) => row['Campaign Name'] || row['Campaign Name (Informational only)'] || '-';
+            const getAdGroupName = (row) => row['Ad Group Name'] || row['Ad Group Name (Informational only)'] || '-';
+            const getPortfolioName = (row) => row['Portfolio Name'] || row['Portfolio Name (Informational only)'] || '-';
+            
+            // Get ALL ASINs in the account (from Product Ads)
+            const allAsins = useMemo(() => {
+                const asinSet = new Set();
+                const asinDetails = new Map();
+                
+                allData.filter(r => r.Entity === 'Product Ad').forEach(row => {
+                    const asin = (row['ASIN (Informational only)'] || '').toUpperCase();
+                    if (asin && asin.length === 10) {
+                        asinSet.add(asin);
+                        if (!asinDetails.has(asin)) {
+                            asinDetails.set(asin, {
+                                asin,
+                                sku: row.SKU || '-',
+                                portfolios: new Set(),
+                                campaigns: new Set()
+                            });
+                        }
+                        const detail = asinDetails.get(asin);
+                        const portfolio = getPortfolioName(row);
+                        if (portfolio !== '-') detail.portfolios.add(portfolio);
+                        detail.campaigns.add(getCampaignName(row));
+                    }
+                });
+                
+                return { set: asinSet, details: asinDetails };
+            }, [allData]);
+            
+            // Build Match Type coverage data
+            const matchTypeCoverageData = useMemo(() => {
+                const matchTypeMap = new Map();
+                
+                // Process Keywords
+                allData.filter(r => r.Entity === 'Keyword').forEach(row => {
+                    const matchType = row['Match Type'] || 'Unknown';
+                    const state = (row.State || '').toLowerCase();
+                    const asin = (row['ASIN (Informational only)'] || '').toUpperCase();
+                    
+                    if (!matchTypeMap.has(matchType)) {
+                        matchTypeMap.set(matchType, {
+                            matchType,
+                            category: matchType.startsWith('Negative') ? 'Negative' : 'Keyword',
+                            metrics: { impressions: 0, clicks: 0, orders: 0, units: 0, spend: 0, sales: 0 },
+                            activeAsins: new Set(),
+                            pausedAsins: new Map(), // Map to store ASIN -> pause details
+                            locations: [] // Where this match type is used
+                        });
+                    }
+                    
+                    const entry = matchTypeMap.get(matchType);
+                    entry.metrics.impressions += parseNum(row.Impressions);
+                    entry.metrics.clicks += parseNum(row.Clicks);
+                    entry.metrics.orders += parseNum(row.Orders);
+                    entry.metrics.units += parseNum(row.Units);
+                    entry.metrics.spend += parseNum(row.Spend);
+                    entry.metrics.sales += parseNum(row.Sales);
+                    
+                    // Track which ASINs have this match type
+                    // We need to find the ASIN for this keyword's ad group
+                    const adGroupId = row['Ad Group ID'];
+                    const campaignId = row['Campaign ID'];
+                    
+                    // Find Product Ads in the same Ad Group to get ASINs
+                    const relatedProductAds = allData.filter(r => 
+                        r.Entity === 'Product Ad' && 
+                        r['Ad Group ID'] === adGroupId
+                    );
+                    
+                    relatedProductAds.forEach(pa => {
+                        const paAsin = (pa['ASIN (Informational only)'] || '').toUpperCase();
+                        if (paAsin && paAsin.length === 10) {
+                            if (state === 'enabled') {
+                                entry.activeAsins.add(paAsin);
+                            } else if (state === 'paused') {
+                                if (!entry.pausedAsins.has(paAsin)) {
+                                    entry.pausedAsins.set(paAsin, []);
+                                }
+                                entry.pausedAsins.get(paAsin).push({
+                                    campaign: getCampaignName(row),
+                                    adGroup: getAdGroupName(row),
+                                    keyword: row['Keyword Text'] || '-',
+                                    bid: row.Bid || '-'
+                                });
+                            }
+                            
+                            entry.locations.push({
+                                asin: paAsin,
+                                campaign: getCampaignName(row),
+                                adGroup: getAdGroupName(row),
+                                keyword: row['Keyword Text'] || '-',
+                                bid: row.Bid || '-',
+                                state: state
+                            });
+                        }
+                    });
+                });
+                
+                // Process Product Targeting (SP Product, SP Category, etc.)
+                allData.filter(r => r.Entity === 'Product Targeting').forEach(row => {
+                    const expression = row['Product Targeting Expression'] || '';
+                    const state = (row.State || '').toLowerCase();
+                    
+                    // Determine targeting type
+                    let matchType = 'SP Product';
+                    if (expression.includes('category=')) matchType = 'SP Category';
+                    else if (expression.includes('asin-expanded=')) matchType = 'SP Product Expanded';
+                    
+                    if (!matchTypeMap.has(matchType)) {
+                        matchTypeMap.set(matchType, {
+                            matchType,
+                            category: 'Product Targeting',
+                            metrics: { impressions: 0, clicks: 0, orders: 0, units: 0, spend: 0, sales: 0 },
+                            activeAsins: new Set(),
+                            pausedAsins: new Map(),
+                            locations: []
+                        });
+                    }
+                    
+                    const entry = matchTypeMap.get(matchType);
+                    entry.metrics.impressions += parseNum(row.Impressions);
+                    entry.metrics.clicks += parseNum(row.Clicks);
+                    entry.metrics.orders += parseNum(row.Orders);
+                    entry.metrics.units += parseNum(row.Units);
+                    entry.metrics.spend += parseNum(row.Spend);
+                    entry.metrics.sales += parseNum(row.Sales);
+                    
+                    // Find ASINs in the same ad group
+                    const adGroupId = row['Ad Group ID'];
+                    const relatedProductAds = allData.filter(r => 
+                        r.Entity === 'Product Ad' && 
+                        r['Ad Group ID'] === adGroupId
+                    );
+                    
+                    relatedProductAds.forEach(pa => {
+                        const paAsin = (pa['ASIN (Informational only)'] || '').toUpperCase();
+                        if (paAsin && paAsin.length === 10) {
+                            if (state === 'enabled') {
+                                entry.activeAsins.add(paAsin);
+                            } else if (state === 'paused') {
+                                if (!entry.pausedAsins.has(paAsin)) {
+                                    entry.pausedAsins.set(paAsin, []);
+                                }
+                                entry.pausedAsins.get(paAsin).push({
+                                    campaign: getCampaignName(row),
+                                    adGroup: getAdGroupName(row),
+                                    expression: expression,
+                                    bid: row.Bid || '-'
+                                });
+                            }
+                            
+                            entry.locations.push({
+                                asin: paAsin,
+                                campaign: getCampaignName(row),
+                                adGroup: getAdGroupName(row),
+                                expression: expression,
+                                bid: row.Bid || '-',
+                                state: state
+                            });
+                        }
+                    });
+                });
+                
+                // Process Auto Campaign Targeting Types
+                allData.filter(r => r.Entity === 'Product Targeting' || r.Entity === 'Keyword').forEach(row => {
+                    const campaignName = getCampaignName(row).toLowerCase();
+                    const expression = row['Product Targeting Expression'] || '';
+                    
+                    // Detect Auto campaign match types from targeting expression
+                    let autoMatchType = null;
+                    if (expression.includes('queryHighRelMatches')) autoMatchType = 'Auto Close Match';
+                    else if (expression.includes('queryBroadRelMatches')) autoMatchType = 'Auto Loose Match';
+                    else if (expression.includes('querySubstituteMatches')) autoMatchType = 'Auto Substitutes';
+                    else if (expression.includes('queryComplementMatches')) autoMatchType = 'Auto Complements';
+                    
+                    if (autoMatchType) {
+                        const state = (row.State || '').toLowerCase();
+                        
+                        if (!matchTypeMap.has(autoMatchType)) {
+                            matchTypeMap.set(autoMatchType, {
+                                matchType: autoMatchType,
+                                category: 'Auto',
+                                metrics: { impressions: 0, clicks: 0, orders: 0, units: 0, spend: 0, sales: 0 },
+                                activeAsins: new Set(),
+                                pausedAsins: new Map(),
+                                locations: []
+                            });
+                        }
+                        
+                        const entry = matchTypeMap.get(autoMatchType);
+                        entry.metrics.impressions += parseNum(row.Impressions);
+                        entry.metrics.clicks += parseNum(row.Clicks);
+                        entry.metrics.orders += parseNum(row.Orders);
+                        entry.metrics.units += parseNum(row.Units);
+                        entry.metrics.spend += parseNum(row.Spend);
+                        entry.metrics.sales += parseNum(row.Sales);
+                        
+                        // Find ASINs in the same ad group
+                        const adGroupId = row['Ad Group ID'];
+                        const relatedProductAds = allData.filter(r => 
+                            r.Entity === 'Product Ad' && 
+                            r['Ad Group ID'] === adGroupId
+                        );
+                        
+                        relatedProductAds.forEach(pa => {
+                            const paAsin = (pa['ASIN (Informational only)'] || '').toUpperCase();
+                            if (paAsin && paAsin.length === 10) {
+                                if (state === 'enabled') {
+                                    entry.activeAsins.add(paAsin);
+                                } else if (state === 'paused') {
+                                    if (!entry.pausedAsins.has(paAsin)) {
+                                        entry.pausedAsins.set(paAsin, []);
+                                    }
+                                    entry.pausedAsins.get(paAsin).push({
+                                        campaign: getCampaignName(row),
+                                        adGroup: getAdGroupName(row),
+                                        expression: expression
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+                
+                // Calculate derived metrics and coverage gaps
+                return Array.from(matchTypeMap.values()).map(entry => {
+                    const m = entry.metrics;
+                    
+                    // Find missing ASINs (ASINs in account but NOT in this match type)
+                    const missingAsins = [];
+                    allAsins.set.forEach(asin => {
+                        if (!entry.activeAsins.has(asin) && !entry.pausedAsins.has(asin)) {
+                            const detail = allAsins.details.get(asin);
+                            missingAsins.push({
+                                asin,
+                                sku: detail?.sku || '-',
+                                portfolios: detail?.portfolios ? Array.from(detail.portfolios) : [],
+                                campaigns: detail?.campaigns ? Array.from(detail.campaigns) : []
+                            });
+                        }
+                    });
+                    
+                    // Convert paused ASINs map to array
+                    const pausedAsinsList = [];
+                    entry.pausedAsins.forEach((details, asin) => {
+                        const asinDetail = allAsins.details.get(asin);
+                        pausedAsinsList.push({
+                            asin,
+                            sku: asinDetail?.sku || '-',
+                            portfolios: asinDetail?.portfolios ? Array.from(asinDetail.portfolios) : [],
+                            pausedIn: details
+                        });
+                    });
+                    
+                    return {
+                        ...entry,
+                        impressions: m.impressions,
+                        clicks: m.clicks,
+                        orders: m.orders,
+                        units: m.units,
+                        spend: m.spend,
+                        sales: m.sales,
+                        cpc: m.clicks > 0 ? m.spend / m.clicks : 0,
+                        ctr: m.impressions > 0 ? (m.clicks / m.impressions * 100) : 0,
+                        acos: m.sales > 0 ? (m.spend / m.sales * 100) : 0,
+                        roas: m.spend > 0 ? (m.sales / m.spend) : 0,
+                        convRate: m.clicks > 0 ? (m.orders / m.clicks * 100) : 0,
+                        activeCount: entry.activeAsins.size,
+                        pausedCount: entry.pausedAsins.size,
+                        missingCount: missingAsins.length,
+                        missingAsins,
+                        pausedAsinsList,
+                        totalAsins: allAsins.set.size,
+                        coveragePercent: allAsins.set.size > 0 
+                            ? ((entry.activeAsins.size / allAsins.set.size) * 100) 
+                            : 0
+                    };
+                }).filter(e => e.spend > 0 || e.activeCount > 0 || e.pausedCount > 0);
+            }, [allData, allAsins]);
+            
+            // Sort data
+            const sortedData = useMemo(() => {
+                let result = [...matchTypeCoverageData];
+                
+                if (searchTerm) {
+                    const term = searchTerm.toLowerCase();
+                    result = result.filter(e => e.matchType.toLowerCase().includes(term));
+                }
+                
+                result.sort((a, b) => {
+                    let aVal = a[sortConfig.key];
+                    let bVal = b[sortConfig.key];
+                    
+                    if (typeof aVal === 'string') {
+                        return sortConfig.direction === 'asc' 
+                            ? aVal.localeCompare(bVal) 
+                            : bVal.localeCompare(aVal);
+                    }
+                    return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+                });
+                
+                return result;
+            }, [matchTypeCoverageData, sortConfig, searchTerm]);
+            
+            // Totals row
+            const totals = useMemo(() => {
+                const t = { impressions: 0, clicks: 0, orders: 0, units: 0, spend: 0, sales: 0 };
+                sortedData.forEach(e => {
+                    t.impressions += e.impressions;
+                    t.clicks += e.clicks;
+                    t.orders += e.orders;
+                    t.units += e.units;
+                    t.spend += e.spend;
+                    t.sales += e.sales;
+                });
+                return {
+                    ...t,
+                    cpc: t.clicks > 0 ? t.spend / t.clicks : 0,
+                    ctr: t.impressions > 0 ? (t.clicks / t.impressions * 100) : 0,
+                    acos: t.sales > 0 ? (t.spend / t.sales * 100) : 0,
+                    roas: t.spend > 0 ? (t.sales / t.spend) : 0,
+                    convRate: t.clicks > 0 ? (t.orders / t.clicks * 100) : 0
+                };
+            }, [sortedData]);
+            
+            // Format helpers
+            const formatNum = (num) => {
+                if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
+                if (num >= 1000) return num.toLocaleString('de-DE', { maximumFractionDigits: 0 });
+                return num.toLocaleString('de-DE', { maximumFractionDigits: 0 });
+            };
+            
+            const formatCurrency = (num) => {
+                return num.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+            };
+            
+            const formatPercent = (num) => {
+                return num.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+            };
+            
+            const formatValue = (value, format) => {
+                switch (format) {
+                    case 'currency': return formatCurrency(value);
+                    case 'percent': return formatPercent(value);
+                    case 'decimal': return value.toFixed(2);
+                    case 'number': return formatNum(value);
+                    default: return value;
+                }
+            };
+            
+            // Toggle expand
+            const toggleExpand = (matchType) => {
+                const newExpanded = new Set(expandedMatchTypes);
+                if (newExpanded.has(matchType)) {
+                    newExpanded.delete(matchType);
+                } else {
+                    newExpanded.add(matchType);
+                }
+                setExpandedMatchTypes(newExpanded);
+            };
+            
+            // Handle sort
+            const handleSort = (key) => {
+                setSortConfig(prev => ({
+                    key,
+                    direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+                }));
+            };
+            
+            // Sort indicator
+            const SortIndicator = ({ column }) => {
+                const isActive = sortConfig.key === column;
+                return (
+                    <span className={`ml-1 inline-flex flex-col text-[8px] leading-none ${isActive ? 'text-cyan-600' : 'text-gray-300'}`}>
+                        <span className={sortConfig.key === column && sortConfig.direction === 'asc' ? 'text-cyan-600' : ''}>▲</span>
+                        <span className={sortConfig.key === column && sortConfig.direction === 'desc' ? 'text-cyan-600' : ''}>▼</span>
+                    </span>
+                );
+            };
+            
+            // Get ACOS color
+            const getAcosColor = (acos) => {
+                if (acos === 0) return 'text-gray-400';
+                if (acos <= 20) return 'text-green-600';
+                if (acos <= 35) return 'text-yellow-600';
+                return 'text-red-600';
+            };
+            
+            // Get ROAS color
+            const getRoasColor = (roas) => {
+                if (roas === 0) return 'text-gray-400';
+                if (roas >= 5) return 'text-green-600';
+                if (roas >= 2.5) return 'text-yellow-600';
+                return 'text-red-600';
+            };
+            
+            // Get coverage badge color
+            const getCoverageBadgeColor = (percent) => {
+                if (percent >= 80) return 'bg-green-100 text-green-700';
+                if (percent >= 50) return 'bg-yellow-100 text-yellow-700';
+                return 'bg-red-100 text-red-700';
+            };
+            
+            return (
+                <div className="space-y-4">
+                    {/* Header */}
+                    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                        <div className="flex items-center justify-between mb-4">
+                            <div>
+                                <h2 className="text-lg font-bold text-gray-900">Match Type Coverage Analysis</h2>
+                                <p className="text-sm text-gray-500">See performance by match type and identify coverage gaps for maximum ROI</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        placeholder="🔍 Search match types..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent w-64"
+                                    />
+                                </div>
+                                <button
+                                    onClick={() => setShowColumnSelector(!showColumnSelector)}
+                                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 flex items-center gap-2"
+                                >
+                                    <span>☰</span> Columns
+                                </button>
+                            </div>
+                        </div>
+                        
+                        {/* Column selector dropdown */}
+                        {showColumnSelector && (
+                            <div className="absolute right-8 mt-2 bg-white border border-gray-200 rounded-lg shadow-xl p-4 z-50 w-64">
+                                <div className="text-sm font-medium text-gray-700 mb-2">Show/Hide Columns</div>
+                                <div className="space-y-2 max-h-64 overflow-y-auto">
+                                    {allColumns.filter(c => c.key !== 'matchType').map(col => (
+                                        <label key={col.key} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                            <input
+                                                type="checkbox"
+                                                checked={visibleColumns.includes(col.key)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setVisibleColumns([...visibleColumns, col.key]);
+                                                    } else {
+                                                        setVisibleColumns(visibleColumns.filter(c => c !== col.key));
+                                                    }
+                                                }}
+                                                className="rounded text-cyan-600"
+                                            />
+                                            {col.label}
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Summary Stats */}
+                        <div className="grid grid-cols-4 gap-4">
+                            <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                                <div className="text-2xl font-bold text-blue-700">{allAsins.set.size}</div>
+                                <div className="text-xs text-blue-600">Total ASINs in Account</div>
+                            </div>
+                            <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                                <div className="text-2xl font-bold text-green-700">{sortedData.length}</div>
+                                <div className="text-xs text-green-600">Active Match Types</div>
+                            </div>
+                            <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
+                                <div className="text-2xl font-bold text-purple-700">{formatCurrency(totals.spend)}</div>
+                                <div className="text-xs text-purple-600">Total Spend</div>
+                            </div>
+                            <div className="bg-cyan-50 rounded-lg p-3 border border-cyan-200">
+                                <div className={`text-2xl font-bold ${getAcosColor(totals.acos)}`}>{formatPercent(totals.acos)}</div>
+                                <div className="text-xs text-cyan-600">Overall ACOS</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {/* Main Table */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead className="bg-gray-50 border-b border-gray-200">
+                                    <tr>
+                                        <th className="w-8 px-2 py-3"></th>
+                                        {allColumns.filter(c => visibleColumns.includes(c.key)).map(col => (
+                                            <th 
+                                                key={col.key}
+                                                className={`px-4 py-3 text-left font-medium text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-nowrap ${col.key === 'matchType' ? 'sticky left-0 bg-gray-50 z-10' : ''}`}
+                                                onClick={() => col.sortable && handleSort(col.key)}
+                                            >
+                                                <div className="flex items-center">
+                                                    {col.label}
+                                                    {col.sortable && <SortIndicator column={col.key} />}
+                                                </div>
+                                            </th>
+                                        ))}
+                                        <th className="px-4 py-3 text-center font-medium text-gray-700">Coverage</th>
+                                        <th className="px-4 py-3 text-center font-medium text-gray-700">Gaps</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {sortedData.map((entry, idx) => (
+                                        <React.Fragment key={entry.matchType}>
+                                            <tr 
+                                                className={`hover:bg-gray-50 cursor-pointer ${expandedMatchTypes.has(entry.matchType) ? 'bg-cyan-50' : ''}`}
+                                                onClick={() => toggleExpand(entry.matchType)}
+                                            >
+                                                <td className="px-2 py-3 text-center">
+                                                    <span className={`text-gray-400 transition-transform inline-block ${expandedMatchTypes.has(entry.matchType) ? 'rotate-90' : ''}`}>
+                                                        ▶
+                                                    </span>
+                                                </td>
+                                                {allColumns.filter(c => visibleColumns.includes(c.key)).map(col => (
+                                                    <td 
+                                                        key={col.key} 
+                                                        className={`px-4 py-3 ${col.key === 'matchType' ? 'sticky left-0 bg-white font-medium text-gray-900 z-10' : 'text-gray-600'} ${col.key === 'acos' ? getAcosColor(entry.acos) : ''} ${col.key === 'roas' ? getRoasColor(entry.roas) : ''}`}
+                                                    >
+                                                        {col.format ? formatValue(entry[col.key], col.format) : entry[col.key]}
+                                                    </td>
+                                                ))}
+                                                <td className="px-4 py-3 text-center">
+                                                    <div className="flex items-center justify-center gap-2">
+                                                        <div className={`px-2 py-1 rounded-full text-xs font-medium ${getCoverageBadgeColor(entry.coveragePercent)}`}>
+                                                            {entry.coveragePercent.toFixed(0)}%
+                                                        </div>
+                                                        <span className="text-xs text-gray-400">
+                                                            ({entry.activeCount}/{entry.totalAsins})
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <div className="flex items-center justify-center gap-2">
+                                                        {entry.missingCount > 0 && (
+                                                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium" title="Missing - opportunity to expand">
+                                                                {entry.missingCount} missing
+                                                            </span>
+                                                        )}
+                                                        {entry.pausedCount > 0 && (
+                                                            <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium" title="Paused - review for reactivation">
+                                                                {entry.pausedCount} paused
+                                                            </span>
+                                                        )}
+                                                        {entry.missingCount === 0 && entry.pausedCount === 0 && (
+                                                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                                                                ✓ Full
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            
+                                            {/* Expanded Row - Coverage Gap Details */}
+                                            {expandedMatchTypes.has(entry.matchType) && (
+                                                <tr>
+                                                    <td colSpan={visibleColumns.length + 3} className="bg-gray-50 p-0">
+                                                        <div className="p-4 border-t border-gray-200">
+                                                            <div className="grid grid-cols-2 gap-4">
+                                                                {/* Missing ASINs */}
+                                                                <div className="bg-white rounded-lg border border-red-200 overflow-hidden">
+                                                                    <div className="bg-red-50 px-4 py-2 border-b border-red-200 flex items-center justify-between">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-red-600 font-bold">🎯</span>
+                                                                            <span className="font-semibold text-red-800">Missing ASINs</span>
+                                                                            <span className="text-xs text-red-600">({entry.missingCount} opportunities)</span>
+                                                                        </div>
+                                                                        <span className="text-xs text-red-500">ASINs without {entry.matchType}</span>
+                                                                    </div>
+                                                                    <div className="max-h-64 overflow-y-auto">
+                                                                        {entry.missingAsins.length > 0 ? (
+                                                                            <table className="w-full text-xs">
+                                                                                <thead className="bg-gray-50 sticky top-0">
+                                                                                    <tr>
+                                                                                        <th className="px-3 py-2 text-left text-gray-600">ASIN</th>
+                                                                                        <th className="px-3 py-2 text-left text-gray-600">SKU</th>
+                                                                                        <th className="px-3 py-2 text-left text-gray-600">Portfolio</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody className="divide-y divide-gray-100">
+                                                                                    {entry.missingAsins.slice(0, 50).map((asin, i) => (
+                                                                                        <tr key={i} className="hover:bg-red-50">
+                                                                                            <td className="px-3 py-2 font-mono text-gray-900">{asin.asin}</td>
+                                                                                            <td className="px-3 py-2 text-gray-600">{asin.sku}</td>
+                                                                                            <td className="px-3 py-2 text-gray-600">{asin.portfolios.join(', ') || '-'}</td>
+                                                                                        </tr>
+                                                                                    ))}
+                                                                                </tbody>
+                                                                            </table>
+                                                                        ) : (
+                                                                            <div className="p-4 text-center text-green-600">
+                                                                                <span className="text-2xl">✓</span>
+                                                                                <div className="text-sm mt-1">All ASINs have {entry.matchType} coverage!</div>
+                                                                            </div>
+                                                                        )}
+                                                                        {entry.missingAsins.length > 50 && (
+                                                                            <div className="px-3 py-2 bg-gray-50 text-xs text-gray-500 text-center">
+                                                                                ... and {entry.missingAsins.length - 50} more
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                {/* Paused ASINs */}
+                                                                <div className="bg-white rounded-lg border border-orange-200 overflow-hidden">
+                                                                    <div className="bg-orange-50 px-4 py-2 border-b border-orange-200 flex items-center justify-between">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-orange-600 font-bold">⏸️</span>
+                                                                            <span className="font-semibold text-orange-800">Paused ASINs</span>
+                                                                            <span className="text-xs text-orange-600">({entry.pausedCount} to review)</span>
+                                                                        </div>
+                                                                        <span className="text-xs text-orange-500">Has {entry.matchType} but paused</span>
+                                                                    </div>
+                                                                    <div className="max-h-64 overflow-y-auto">
+                                                                        {entry.pausedAsinsList.length > 0 ? (
+                                                                            <table className="w-full text-xs">
+                                                                                <thead className="bg-gray-50 sticky top-0">
+                                                                                    <tr>
+                                                                                        <th className="px-3 py-2 text-left text-gray-600">ASIN</th>
+                                                                                        <th className="px-3 py-2 text-left text-gray-600">SKU</th>
+                                                                                        <th className="px-3 py-2 text-left text-gray-600">Paused In</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody className="divide-y divide-gray-100">
+                                                                                    {entry.pausedAsinsList.slice(0, 50).map((asin, i) => (
+                                                                                        <tr key={i} className="hover:bg-orange-50">
+                                                                                            <td className="px-3 py-2 font-mono text-gray-900">{asin.asin}</td>
+                                                                                            <td className="px-3 py-2 text-gray-600">{asin.sku}</td>
+                                                                                            <td className="px-3 py-2 text-gray-600 text-xs">
+                                                                                                {asin.pausedIn.slice(0, 2).map((p, j) => (
+                                                                                                    <div key={j} className="truncate max-w-[200px]" title={`${p.campaign} / ${p.adGroup}`}>
+                                                                                                        {p.campaign}
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                                {asin.pausedIn.length > 2 && (
+                                                                                                    <div className="text-orange-500">+{asin.pausedIn.length - 2} more</div>
+                                                                                                )}
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                    ))}
+                                                                                </tbody>
+                                                                            </table>
+                                                                        ) : (
+                                                                            <div className="p-4 text-center text-green-600">
+                                                                                <span className="text-2xl">✓</span>
+                                                                                <div className="text-sm mt-1">No paused {entry.matchType} campaigns!</div>
+                                                                            </div>
+                                                                        )}
+                                                                        {entry.pausedAsinsList.length > 50 && (
+                                                                            <div className="px-3 py-2 bg-gray-50 text-xs text-gray-500 text-center">
+                                                                                ... and {entry.pausedAsinsList.length - 50} more
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            {/* ROI Insight */}
+                                                            {entry.roas > 2 && entry.missingCount > 0 && (
+                                                                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                                                                    <div className="flex items-center gap-2 text-green-800">
+                                                                        <span className="text-xl">💰</span>
+                                                                        <span className="font-semibold">ROI Opportunity:</span>
+                                                                        <span className="text-sm">
+                                                                            {entry.matchType} has {entry.roas.toFixed(2)}x ROAS. 
+                                                                            Adding {entry.missingCount} missing ASINs could significantly increase revenue!
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            
+                                                            {entry.acos > 40 && entry.pausedCount > 0 && (
+                                                                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                                                    <div className="flex items-center gap-2 text-yellow-800">
+                                                                        <span className="text-xl">⚠️</span>
+                                                                        <span className="font-semibold">Review Suggestion:</span>
+                                                                        <span className="text-sm">
+                                                                            {entry.matchType} has {entry.acos.toFixed(1)}% ACOS. 
+                                                                            The {entry.pausedCount} paused ASINs may have been paused for good reason.
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
+                                    ))}
+                                    
+                                    {/* Totals Row */}
+                                    <tr className="bg-gray-100 font-semibold border-t-2 border-gray-300">
+                                        <td className="px-2 py-3"></td>
+                                        {allColumns.filter(c => visibleColumns.includes(c.key)).map(col => (
+                                            <td 
+                                                key={col.key} 
+                                                className={`px-4 py-3 ${col.key === 'matchType' ? 'sticky left-0 bg-gray-100 z-10' : ''} ${col.key === 'acos' ? getAcosColor(totals.acos) : ''} ${col.key === 'roas' ? getRoasColor(totals.roas) : ''}`}
+                                            >
+                                                {col.key === 'matchType' 
+                                                    ? `Total (${sortedData.length} types)` 
+                                                    : col.format ? formatValue(totals[col.key], col.format) : totals[col.key]
+                                                }
+                                            </td>
+                                        ))}
+                                        <td className="px-4 py-3"></td>
+                                        <td className="px-4 py-3"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        {sortedData.length === 0 && (
+                            <div className="text-center py-12 text-gray-500">
+                                <div className="text-4xl mb-3">📊</div>
+                                <div className="font-medium">No Match Types Found</div>
+                                <div className="text-sm">Upload a bulksheet with keywords or product targeting to see match type coverage</div>
+                            </div>
+                        )}
+                    </div>
+                    
+                    {/* Legend */}
+                    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                        <div className="text-sm font-medium text-gray-700 mb-2">Understanding Coverage Gaps</div>
+                        <div className="flex flex-wrap gap-4 text-xs text-gray-600">
+                            <div className="flex items-center gap-2">
+                                <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full font-medium">Missing</span>
+                                <span>= ASIN exists but has no campaigns with this match type (opportunity!)</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full font-medium">Paused</span>
+                                <span>= ASIN has this match type but it's currently paused (review for reactivation)</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">✓ Full</span>
+                                <span>= All ASINs have active coverage for this match type</span>
+                            </div>
                         </div>
                     </div>
                 </div>
