@@ -4980,6 +4980,13 @@
             const [expandedMatchTypes, setExpandedMatchTypes] = useState(new Map()); // asin -> Set of matchTypes
             const [expandedCampaigns, setExpandedCampaigns] = useState(new Map()); // "asin-matchType" -> Set of campaignIds
             
+            // Mode toggle: 'analysis' = use Product Ads ASINs, 'custom' = use imported ASINs
+            const [mode, setMode] = useState('analysis');
+            const [showImportModal, setShowImportModal] = useState(false);
+            const [customAsinsRaw, setCustomAsinsRaw] = useState('');
+            const [customAsins, setCustomAsins] = useState([]); // [{ asin, parentAsin?, title?, ...customFields }]
+            const [customColumns, setCustomColumns] = useState([]); // detected columns from import
+            
             // Match type filter state: { mustHave: Set, mustBeMissing: Set }
             const [matchTypeFilter, setMatchTypeFilter] = useState({ mustHave: new Set(), mustBeMissing: new Set() });
             const [showMatchTypeFilter, setShowMatchTypeFilter] = useState(false);
@@ -4992,6 +4999,8 @@
             // Column widths state
             const [columnWidths, setColumnWidths] = useState({
                 asin: 120,
+                parentAsin: 110,
+                title: 200,
                 sku: 100,
                 coverage: 100,
                 status: 90,
@@ -5006,11 +5015,89 @@
             });
             const [resizing, setResizing] = useState(null);
             
+            // Parse custom ASINs from pasted text
+            const parseCustomAsins = (text) => {
+                if (!text.trim()) return { asins: [], columns: [] };
+                
+                const lines = text.trim().split('\n');
+                if (lines.length === 0) return { asins: [], columns: [] };
+                
+                // Detect delimiter (tab or comma)
+                const firstLine = lines[0];
+                const delimiter = firstLine.includes('\t') ? '\t' : ',';
+                
+                // Parse header row
+                const headers = firstLine.split(delimiter).map(h => h.trim().replace(/^["']|["']$/g, ''));
+                
+                // Find ASIN column (case insensitive)
+                const asinColIndex = headers.findIndex(h => 
+                    /^(child\s*)?asin$/i.test(h) || h.toLowerCase() === 'asin'
+                );
+                
+                if (asinColIndex === -1) {
+                    // No header, assume first column is ASIN
+                    const asins = lines.map(line => {
+                        const cols = line.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
+                        const asin = (cols[0] || '').toUpperCase();
+                        if (asin && /^[A-Z0-9]{10}$/.test(asin)) {
+                            return { asin };
+                        }
+                        return null;
+                    }).filter(Boolean);
+                    return { asins, columns: [] };
+                }
+                
+                // Map other columns
+                const otherColumns = headers.map((h, i) => {
+                    if (i === asinColIndex) return null;
+                    // Normalize column names
+                    let normalized = h;
+                    if (/parent\s*asin/i.test(h)) normalized = 'parentAsin';
+                    else if (/title|name|short\s*name|product\s*name/i.test(h)) normalized = 'title';
+                    else if (/sku/i.test(h)) normalized = 'sku';
+                    else if (/brand/i.test(h)) normalized = 'brand';
+                    else if (/category/i.test(h)) normalized = 'category';
+                    else if (/price/i.test(h)) normalized = 'price';
+                    return { index: i, original: h, normalized };
+                }).filter(Boolean);
+                
+                // Parse data rows
+                const asins = [];
+                for (let i = 1; i < lines.length; i++) {
+                    const cols = lines[i].split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
+                    const asin = (cols[asinColIndex] || '').toUpperCase();
+                    
+                    if (asin && /^[A-Z0-9]{10}$/.test(asin)) {
+                        const entry = { asin };
+                        otherColumns.forEach(col => {
+                            entry[col.normalized] = cols[col.index] || '';
+                        });
+                        asins.push(entry);
+                    }
+                }
+                
+                return { 
+                    asins, 
+                    columns: otherColumns.map(c => c.normalized).filter((v, i, a) => a.indexOf(v) === i)
+                };
+            };
+            
+            // Handle import
+            const handleImport = () => {
+                const { asins, columns } = parseCustomAsins(customAsinsRaw);
+                if (asins.length > 0) {
+                    setCustomAsins(asins);
+                    setCustomColumns(columns);
+                    setMode('custom');
+                    setShowImportModal(false);
+                }
+            };
+            
             // Handle column resize
             const handleResizeStart = (e, column) => {
                 e.preventDefault();
                 e.stopPropagation();
-                setResizing({ column, startX: e.clientX, startWidth: columnWidths[column] });
+                setResizing({ column, startX: e.clientX, startWidth: columnWidths[column] || 100 });
             };
             
             useEffect(() => {
@@ -5531,16 +5618,82 @@
                 });
             }, [allData]); 
             
+            // Build coverage data for custom ASINs mode
+            const customAsinCoverageData = useMemo(() => {
+                if (mode !== 'custom' || customAsins.length === 0) return [];
+                
+                // Build a lookup of existing analysis data by ASIN
+                const analysisLookup = new Map();
+                asinCoverageData.forEach(entry => {
+                    analysisLookup.set(entry.asin, entry);
+                });
+                
+                // Get all match types from analysis data
+                const allMatchTypes = new Set();
+                asinCoverageData.forEach(entry => {
+                    entry.matchTypes.forEach(mt => allMatchTypes.add(mt.matchType));
+                    entry.missingMatchTypes.forEach(mt => allMatchTypes.add(mt));
+                });
+                const allMatchTypesArray = Array.from(allMatchTypes);
+                
+                // Map custom ASINs to coverage data
+                return customAsins.map(customEntry => {
+                    const existingData = analysisLookup.get(customEntry.asin);
+                    
+                    if (existingData) {
+                        // ASIN exists in campaigns - merge custom fields
+                        return {
+                            ...existingData,
+                            parentAsin: customEntry.parentAsin || '',
+                            title: customEntry.title || '',
+                            brand: customEntry.brand || '',
+                            category: customEntry.category || '',
+                            price: customEntry.price || '',
+                            customFields: customEntry,
+                            inCampaigns: true
+                        };
+                    } else {
+                        // ASIN not in campaigns - create empty entry
+                        return {
+                            asin: customEntry.asin,
+                            parentAsin: customEntry.parentAsin || '',
+                            title: customEntry.title || '',
+                            brand: customEntry.brand || '',
+                            category: customEntry.category || '',
+                            price: customEntry.price || '',
+                            sku: customEntry.sku || '-',
+                            portfolio: '-',
+                            metrics: { impressions: 0, clicks: 0, spend: 0, sales: 0, orders: 0 },
+                            matchTypes: [],
+                            missingMatchTypes: allMatchTypesArray,
+                            matchTypeCount: 0,
+                            enabledMatchTypeCount: 0,
+                            coverage: 'missing',
+                            status: 'none',
+                            acos: 0,
+                            ctr: 0,
+                            cpc: 0,
+                            convRate: 0,
+                            customFields: customEntry,
+                            inCampaigns: false
+                        };
+                    }
+                });
+            }, [mode, customAsins, asinCoverageData]);
+            
+            // Get the active data based on mode
+            const activeData = mode === 'custom' ? customAsinCoverageData : asinCoverageData;
+            
             // Get unique portfolios
             const portfolioList = useMemo(() => {
                 const portfolios = new Set();
-                asinCoverageData.forEach(entry => {
+                activeData.forEach(entry => {
                     if (entry.portfolio && entry.portfolio !== '-') {
                         portfolios.add(entry.portfolio);
                     }
                 });
                 return Array.from(portfolios).sort();
-            }, [asinCoverageData]);
+            }, [activeData]);
             
             // Get all unique match types across all ASINs
             const allMatchTypesList = useMemo(() => {
@@ -5583,7 +5736,7 @@
             
             // Filter and sort data
             const filteredData = useMemo(() => {
-                let result = [...asinCoverageData];
+                let result = [...activeData];
                 
                 // Search filter
                 if (searchTerm) {
@@ -5591,12 +5744,18 @@
                     result = result.filter(entry => 
                         entry.asin.toLowerCase().includes(term) ||
                         (entry.sku && entry.sku.toLowerCase().includes(term)) ||
-                        (entry.portfolio && entry.portfolio.toLowerCase().includes(term))
+                        (entry.portfolio && entry.portfolio.toLowerCase().includes(term)) ||
+                        (entry.parentAsin && entry.parentAsin.toLowerCase().includes(term)) ||
+                        (entry.title && entry.title.toLowerCase().includes(term))
                     );
                 }
                 
-                // Status filter
-                if (statusFilter !== 'all') {
+                // Status filter (and In Campaigns filter for custom mode)
+                if (statusFilter === 'inCampaigns') {
+                    result = result.filter(entry => entry.inCampaigns === true);
+                } else if (statusFilter === 'notInCampaigns') {
+                    result = result.filter(entry => entry.inCampaigns === false);
+                } else if (statusFilter !== 'all') {
                     result = result.filter(entry => entry.status === statusFilter);
                 }
                 
@@ -5674,23 +5833,27 @@
                 });
                 
                 return result;
-            }, [asinCoverageData, searchTerm, statusFilter, coverageFilter, portfolioFilter, matchTypeFilter, columnFilters, sortConfig]);
+            }, [activeData, searchTerm, statusFilter, coverageFilter, portfolioFilter, matchTypeFilter, columnFilters, sortConfig]);
             
             // Summary stats
             const summaryStats = useMemo(() => {
+                const dataToAnalyze = activeData;
                 const stats = {
-                    totalAsins: asinCoverageData.length,
-                    fullCoverage: asinCoverageData.filter(e => e.coverage === 'full').length,
-                    partialCoverage: asinCoverageData.filter(e => e.coverage === 'partial').length,
-                    missingCoverage: asinCoverageData.filter(e => e.coverage === 'missing').length,
-                    totalSpend: asinCoverageData.reduce((sum, e) => sum + e.metrics.spend, 0),
-                    totalSales: asinCoverageData.reduce((sum, e) => sum + e.metrics.sales, 0),
-                    totalImpressions: asinCoverageData.reduce((sum, e) => sum + e.metrics.impressions, 0),
-                    totalClicks: asinCoverageData.reduce((sum, e) => sum + e.metrics.clicks, 0)
+                    totalAsins: dataToAnalyze.length,
+                    fullCoverage: dataToAnalyze.filter(e => e.coverage === 'full').length,
+                    partialCoverage: dataToAnalyze.filter(e => e.coverage === 'partial').length,
+                    missingCoverage: dataToAnalyze.filter(e => e.coverage === 'missing').length,
+                    totalSpend: dataToAnalyze.reduce((sum, e) => sum + e.metrics.spend, 0),
+                    totalSales: dataToAnalyze.reduce((sum, e) => sum + e.metrics.sales, 0),
+                    totalImpressions: dataToAnalyze.reduce((sum, e) => sum + e.metrics.impressions, 0),
+                    totalClicks: dataToAnalyze.reduce((sum, e) => sum + e.metrics.clicks, 0),
+                    // Custom mode specific stats
+                    inCampaigns: mode === 'custom' ? dataToAnalyze.filter(e => e.inCampaigns).length : 0,
+                    notInCampaigns: mode === 'custom' ? dataToAnalyze.filter(e => !e.inCampaigns).length : 0
                 };
                 stats.overallAcos = stats.totalSales > 0 ? (stats.totalSpend / stats.totalSales * 100) : 0;
                 return stats;
-            }, [asinCoverageData]);
+            }, [activeData, mode]);
             
             // Toggle expand
             const toggleExpand = (asin) => {
@@ -5785,12 +5948,122 @@
             
             return (
                 <div className="space-y-4">
+                    {/* Mode Toggle and Import */}
+                    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+                                    <button
+                                        onClick={() => setMode('analysis')}
+                                        className={`px-4 py-2 text-sm font-medium transition ${
+                                            mode === 'analysis' 
+                                                ? 'bg-cyan-600 text-white' 
+                                                : 'bg-white text-gray-700 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        📊 From Bulksheet
+                                    </button>
+                                    <button
+                                        onClick={() => setMode('custom')}
+                                        className={`px-4 py-2 text-sm font-medium transition ${
+                                            mode === 'custom' 
+                                                ? 'bg-cyan-600 text-white' 
+                                                : 'bg-white text-gray-700 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        📋 Custom ASINs {customAsins.length > 0 && `(${customAsins.length})`}
+                                    </button>
+                                </div>
+                                <span className="text-sm text-gray-500">
+                                    {mode === 'analysis' 
+                                        ? 'Analyzing ASINs found in your bulksheet Product Ads'
+                                        : customAsins.length > 0 
+                                            ? `Checking coverage for ${customAsins.length} imported ASINs`
+                                            : 'Import your own ASIN list to check coverage'
+                                    }
+                                </span>
+                            </div>
+                            {mode === 'custom' && (
+                                <button
+                                    onClick={() => setShowImportModal(true)}
+                                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition flex items-center gap-2"
+                                >
+                                    📥 Import ASINs
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                    
+                    {/* Import Modal */}
+                    {showImportModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowImportModal(false)}>
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                                <div className="p-6 border-b border-gray-200">
+                                    <div className="flex items-center justify-between">
+                                        <h2 className="text-xl font-bold text-gray-900">Import Custom ASINs</h2>
+                                        <button onClick={() => setShowImportModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                                    </div>
+                                    <p className="text-sm text-gray-500 mt-1">
+                                        Paste your ASIN list from Excel/Sheets. Include headers for additional columns.
+                                    </p>
+                                </div>
+                                <div className="p-6 space-y-4">
+                                    <div className="bg-gray-50 rounded-lg p-4 text-sm">
+                                        <div className="font-medium text-gray-700 mb-2">Supported format:</div>
+                                        <div className="font-mono text-xs text-gray-600 bg-white p-3 rounded border border-gray-200">
+                                            Child Asin{'\t'}Parent ASIN{'\t'}Short Name<br/>
+                                            B0DNQ5V2LC{'\t'}B0FPG728NV{'\t'}Gerobug Ratten Spray...<br/>
+                                            B0B5XTQ6M9{'\t'}B0B5XTQ6M9{'\t'}GEROBUG Motten-Falle...
+                                        </div>
+                                        <div className="mt-2 text-gray-500">
+                                            Columns auto-detected: Child Asin/ASIN, Parent ASIN, Title/Short Name, SKU, Brand, Category, Price
+                                        </div>
+                                    </div>
+                                    <textarea
+                                        value={customAsinsRaw}
+                                        onChange={(e) => setCustomAsinsRaw(e.target.value)}
+                                        placeholder="Paste your ASIN data here (tab or comma separated)..."
+                                        className="w-full h-64 px-4 py-3 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                                    />
+                                    <div className="text-sm text-gray-500">
+                                        {(() => {
+                                            const { asins, columns } = parseCustomAsins(customAsinsRaw);
+                                            if (asins.length === 0) return 'No valid ASINs detected';
+                                            return `Found ${asins.length} ASINs` + (columns.length > 0 ? ` with columns: ${columns.join(', ')}` : '');
+                                        })()}
+                                    </div>
+                                </div>
+                                <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+                                    <button
+                                        onClick={() => setShowImportModal(false)}
+                                        className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleImport}
+                                        disabled={parseCustomAsins(customAsinsRaw).asins.length === 0}
+                                        className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Import {parseCustomAsins(customAsinsRaw).asins.length} ASINs
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
                     {/* Summary Cards */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                    <div className={`grid grid-cols-2 md:grid-cols-4 ${mode === 'custom' ? 'lg:grid-cols-8' : 'lg:grid-cols-7'} gap-3`}>
                         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
                             <div className="text-2xl font-bold text-gray-900">{summaryStats.totalAsins}</div>
                             <div className="text-xs text-gray-500">Total ASINs</div>
                         </div>
+                        {mode === 'custom' && (
+                            <div className="bg-indigo-50 rounded-xl p-4 shadow-sm border border-indigo-200">
+                                <div className="text-2xl font-bold text-indigo-700">{summaryStats.inCampaigns}</div>
+                                <div className="text-xs text-indigo-600">In Campaigns</div>
+                            </div>
+                        )}
                         <div className="bg-green-50 rounded-xl p-4 shadow-sm border border-green-200">
                             <div className="text-2xl font-bold text-green-700">{summaryStats.fullCoverage}</div>
                             <div className="text-xs text-green-600">Full Coverage</div>
@@ -5801,7 +6074,7 @@
                         </div>
                         <div className="bg-red-50 rounded-xl p-4 shadow-sm border border-red-200">
                             <div className="text-2xl font-bold text-red-700">{summaryStats.missingCoverage}</div>
-                            <div className="text-xs text-red-600">Missing Coverage</div>
+                            <div className="text-xs text-red-600">{mode === 'custom' ? 'Not Advertised' : 'Missing Coverage'}</div>
                         </div>
                         <div className="bg-blue-50 rounded-xl p-4 shadow-sm border border-blue-200">
                             <div className="text-2xl font-bold text-blue-700">${formatNum(summaryStats.totalSpend, 0)}</div>
@@ -5825,14 +6098,25 @@
                             <div className="flex-1 min-w-[200px]">
                                 <input
                                     type="text"
-                                    placeholder="Search ASIN, SKU, or Campaign..."
+                                    placeholder={mode === 'custom' ? "Search ASIN, Parent ASIN, Title, SKU..." : "Search ASIN, SKU, or Campaign..."}
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                                 />
                             </div>
+                            {mode === 'custom' && (
+                                <select
+                                    value={statusFilter === 'inCampaigns' || statusFilter === 'notInCampaigns' ? statusFilter : 'all'}
+                                    onChange={(e) => setStatusFilter(e.target.value)}
+                                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm"
+                                >
+                                    <option value="all">All ASINs</option>
+                                    <option value="inCampaigns">In Campaigns</option>
+                                    <option value="notInCampaigns">Not In Campaigns</option>
+                                </select>
+                            )}
                             <select
-                                value={statusFilter}
+                                value={statusFilter !== 'inCampaigns' && statusFilter !== 'notInCampaigns' ? statusFilter : 'all'}
                                 onChange={(e) => setStatusFilter(e.target.value)}
                                 className="px-4 py-2 border border-gray-300 rounded-lg text-sm"
                             >
@@ -6040,7 +6324,7 @@
                         )}
                         
                         <div className="mt-2 text-xs text-gray-500">
-                            Showing {filteredData.length} of {asinCoverageData.length} ASINs
+                            Showing {filteredData.length} of {activeData.length} ASINs
                         </div>
                     </div>
                     
@@ -6060,11 +6344,30 @@
                                             <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
                                                 onMouseDown={(e) => handleResizeStart(e, 'asin')} />
                                         </th>
+                                        {mode === 'custom' && customColumns.includes('parentAsin') && (
+                                            <th style={{ width: columnWidths.parentAsin, minWidth: columnWidths.parentAsin }} className="relative group px-3 py-3 text-left font-medium text-gray-700">
+                                                <div className="flex items-center gap-1">Parent ASIN</div>
+                                                <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                    onMouseDown={(e) => handleResizeStart(e, 'parentAsin')} />
+                                            </th>
+                                        )}
+                                        {mode === 'custom' && customColumns.includes('title') && (
+                                            <th style={{ width: columnWidths.title, minWidth: columnWidths.title }} className="relative group px-3 py-3 text-left font-medium text-gray-700">
+                                                <div className="flex items-center gap-1">Title</div>
+                                                <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
+                                                    onMouseDown={(e) => handleResizeStart(e, 'title')} />
+                                            </th>
+                                        )}
                                         <th style={{ width: columnWidths.sku, minWidth: columnWidths.sku }} className="relative group px-3 py-3 text-left font-medium text-gray-700">
                                             <div className="flex items-center gap-1">SKU(s)</div>
                                             <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
                                                 onMouseDown={(e) => handleResizeStart(e, 'sku')} />
                                         </th>
+                                        {mode === 'custom' && (
+                                            <th style={{ width: 90, minWidth: 90 }} className="relative group px-3 py-3 text-center font-medium text-gray-700">
+                                                <div className="flex items-center justify-center gap-1">In Ads?</div>
+                                            </th>
+                                        )}
                                         <th style={{ width: columnWidths.coverage, minWidth: columnWidths.coverage }} className="relative group px-3 py-3 text-center font-medium text-gray-700">
                                             <div className="flex items-center justify-center gap-1 cursor-pointer hover:text-cyan-600" onClick={() => handleSort('coverage')}>
                                                 Coverage <SortIndicator column="coverage" />
@@ -6185,11 +6488,29 @@
                                 <tbody className="divide-y divide-gray-100">
                                     {filteredData.map((entry) => (
                                         <React.Fragment key={entry.asin}>
-                                            <tr className="hover:bg-gray-50 transition">
+                                            <tr className={`hover:bg-gray-50 transition ${mode === 'custom' && !entry.inCampaigns ? 'bg-red-50/30' : ''}`}>
                                                 <td style={{ width: columnWidths.asin }} className="px-3 py-3 font-mono text-xs font-medium text-gray-900">{entry.asin}</td>
+                                                {mode === 'custom' && customColumns.includes('parentAsin') && (
+                                                    <td style={{ width: columnWidths.parentAsin }} className="px-3 py-3 font-mono text-xs text-gray-600">
+                                                        {entry.parentAsin || '-'}
+                                                    </td>
+                                                )}
+                                                {mode === 'custom' && customColumns.includes('title') && (
+                                                    <td style={{ width: columnWidths.title }} className="px-3 py-3 text-xs text-gray-600 truncate" title={entry.title}>
+                                                        {entry.title || '-'}
+                                                    </td>
+                                                )}
                                                 <td style={{ width: columnWidths.sku }} className="px-3 py-3 text-xs text-gray-600 truncate" title={entry.sku}>
                                                     {entry.sku || '-'}
                                                 </td>
+                                                {mode === 'custom' && (
+                                                    <td style={{ width: 90 }} className="px-3 py-3 text-center">
+                                                        {entry.inCampaigns 
+                                                            ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Yes</span>
+                                                            : <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">No</span>
+                                                        }
+                                                    </td>
+                                                )}
                                                 <td style={{ width: columnWidths.coverage }} className="px-3 py-3 text-center">{getCoverageBadge(entry.coverage)}</td>
                                                 <td style={{ width: columnWidths.status }} className="px-3 py-3 text-center">{getStatusBadge(entry.status)}</td>
                                                 <td style={{ width: columnWidths.impressions }} className="px-3 py-3 text-right text-xs text-gray-600">{formatNum(entry.metrics.impressions)}</td>
@@ -6216,10 +6537,16 @@
                                             </tr>
                                             {expandedAsins.has(entry.asin) && (
                                                 <tr>
-                                                    <td colSpan="12" className="px-4 py-4 bg-gray-50">
+                                                    <td colSpan={12 + (mode === 'custom' ? 1 + (customColumns.includes('parentAsin') ? 1 : 0) + (customColumns.includes('title') ? 1 : 0) : 0)} className="px-4 py-4 bg-gray-50">
                                                         <div className="space-y-4">
                                                             {/* ASIN Info Header */}
-                                                            <div className="flex items-center gap-4 text-sm">
+                                                            <div className="flex items-center gap-4 text-sm flex-wrap">
+                                                                {mode === 'custom' && entry.title && (
+                                                                    <div className="bg-white px-3 py-2 rounded-lg border border-gray-200 flex-1">
+                                                                        <span className="text-gray-500">Title:</span>
+                                                                        <span className="ml-2 font-medium text-gray-900">{entry.title}</span>
+                                                                    </div>
+                                                                )}
                                                                 <div className="bg-white px-3 py-2 rounded-lg border border-gray-200">
                                                                     <span className="text-gray-500">Portfolio:</span>
                                                                     <span className="ml-2 font-medium text-gray-900">{entry.portfolio}</span>
