@@ -5289,12 +5289,15 @@
                 activeData.forEach(entry => {
                     let val = '';
                     switch (column) {
+                        case 'asin': val = entry.asin || ''; break;
                         case 'parentAsin': val = entry.parentAsin || ''; break;
                         case 'title': val = entry.title || ''; break;
                         case 'sku': val = entry.sku || ''; break;
                         case 'brand': val = entry.brand || ''; break;
                         case 'category': val = entry.category || ''; break;
                         case 'portfolio': val = entry.portfolio || ''; break;
+                        case 'coverage': val = entry.coverage || ''; break;
+                        case 'status': val = entry.status || ''; break;
                         default: val = '';
                     }
                     if (val && val !== '-') values.add(val);
@@ -5372,74 +5375,83 @@
                 
                 return (
                     <div 
-                        className="fixed bg-white rounded-xl shadow-2xl border border-gray-200 p-4 z-50 min-w-[280px] max-w-[350px]"
-                        style={{ top: textFilterPosition.top, left: textFilterPosition.left }}
+                        className="fixed bg-white rounded-xl shadow-2xl border border-gray-200 z-[100] min-w-[280px] max-w-[350px] flex flex-col"
+                        style={{ 
+                            top: textFilterPosition.top, 
+                            left: textFilterPosition.left,
+                            maxHeight: 'min(400px, calc(100vh - 100px))'
+                        }}
                         onClick={e => e.stopPropagation()}
                     >
-                        {/* Search */}
-                        <div className="relative mb-3">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
-                            <input
-                                type="text"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Instant search"
-                                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                                autoFocus
+                        {/* Fixed Header - Search */}
+                        <div className="p-4 pb-2 border-b border-gray-100">
+                            <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
+                                <input
+                                    type="text"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    placeholder="Instant search"
+                                    className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                                    autoFocus
                             />
+                            </div>
                         </div>
                         
-                        {/* Select All */}
-                        <label className="flex items-center gap-3 py-2 px-1 hover:bg-gray-50 rounded cursor-pointer border-b border-gray-200 mb-2">
-                            <input
-                                type="checkbox"
-                                checked={isAllSelected}
-                                onChange={toggleSelectAll}
-                                className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-                            />
-                            <span className="text-sm font-medium text-gray-700">Select All</span>
-                        </label>
-                        
-                        {/* Values list */}
-                        <div className="max-h-[250px] overflow-y-auto space-y-1">
-                            {filteredValues.length === 0 ? (
-                                <div className="text-sm text-gray-400 text-center py-4">No values found</div>
-                            ) : (
-                                filteredValues.map(value => (
-                                    <label key={value} className="flex items-center gap-3 py-2 px-1 hover:bg-gray-50 rounded cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedValues.has(value)}
-                                            onChange={() => toggleValue(value)}
-                                            className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-                                        />
-                                        <span className="text-sm text-gray-700 truncate" title={value}>
-                                            {value.length > 40 ? value.substring(0, 40) + '...' : value}
-                                        </span>
-                                    </label>
-                                ))
-                            )}
+                        {/* Scrollable Middle - Select All + Values */}
+                        <div className="flex-1 overflow-y-auto px-4 py-2 min-h-0">
+                            {/* Select All */}
+                            <label className="flex items-center gap-3 py-2 px-1 hover:bg-gray-50 rounded cursor-pointer border-b border-gray-200 mb-2">
+                                <input
+                                    type="checkbox"
+                                    checked={isAllSelected}
+                                    onChange={toggleSelectAll}
+                                    className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                                />
+                                <span className="text-sm font-medium text-gray-700">Select All</span>
+                            </label>
+                            
+                            {/* Values list */}
+                            <div className="space-y-1">
+                                {filteredValues.length === 0 ? (
+                                    <div className="text-sm text-gray-400 text-center py-4">No values found</div>
+                                ) : (
+                                    filteredValues.map(value => (
+                                        <label key={value} className="flex items-center gap-3 py-2 px-1 hover:bg-gray-50 rounded cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedValues.has(value)}
+                                                onChange={() => toggleValue(value)}
+                                                className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                                            />
+                                            <span className="text-sm text-gray-700 truncate" title={value}>
+                                                {value.length > 40 ? value.substring(0, 40) + '...' : value}
+                                            </span>
+                                        </label>
+                                    ))
+                                )}
+                            </div>
                         </div>
                         
-                        {/* Selected count */}
-                        <div className="text-sm font-medium text-gray-700 mt-3 pt-3 border-t border-gray-200">
-                            {selectedValues.size} items selected
-                        </div>
-                        
-                        {/* Buttons */}
-                        <div className="flex gap-2 mt-3">
-                            <button
-                                onClick={applyFilter}
-                                className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800"
-                            >
-                                Apply filter
-                            </button>
-                            <button
-                                onClick={removeFilter}
-                                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
-                            >
-                                Remove filter
-                            </button>
+                        {/* Fixed Footer - Count + Buttons */}
+                        <div className="p-4 pt-3 border-t border-gray-200 bg-white rounded-b-xl">
+                            <div className="text-sm font-medium text-gray-700 mb-3">
+                                {selectedValues.size} items selected
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={applyFilter}
+                                    className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800"
+                                >
+                                    Apply filter
+                                </button>
+                                <button
+                                    onClick={removeFilter}
+                                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
+                                >
+                                    Remove filter
+                                </button>
+                            </div>
                         </div>
                     </div>
                 );
@@ -5449,7 +5461,22 @@
             const openTextFilterPopup = (e, column) => {
                 e.stopPropagation();
                 const rect = e.currentTarget.getBoundingClientRect();
-                setTextFilterPosition({ top: rect.bottom + 5, left: Math.min(rect.left, window.innerWidth - 300) });
+                const popupHeight = 400; // Approximate max height of popup
+                const popupWidth = 300;
+                
+                // Calculate position - prefer below button, but flip above if not enough room
+                let top = rect.bottom + 5;
+                let left = Math.min(rect.left, window.innerWidth - popupWidth - 20);
+                
+                // If popup would go below viewport, position it above the button
+                if (top + popupHeight > window.innerHeight) {
+                    top = Math.max(10, rect.top - popupHeight - 5);
+                }
+                
+                // Ensure left is not negative
+                left = Math.max(10, left);
+                
+                setTextFilterPosition({ top, left });
                 setActiveTextFilterColumn(column);
             };
             
@@ -5998,12 +6025,15 @@
                     result = result.filter(entry => {
                         let val = '';
                         switch (column) {
+                            case 'asin': val = entry.asin || ''; break;
                             case 'parentAsin': val = entry.parentAsin || ''; break;
                             case 'title': val = entry.title || ''; break;
                             case 'sku': val = entry.sku || ''; break;
                             case 'brand': val = entry.brand || ''; break;
                             case 'category': val = entry.category || ''; break;
                             case 'portfolio': val = entry.portfolio || ''; break;
+                            case 'coverage': val = entry.coverage || ''; break;
+                            case 'status': val = entry.status || ''; break;
                             default: val = '';
                         }
                         return selectedValues.has(val);
@@ -6557,8 +6587,15 @@
                                 <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
                                     <tr>
                                         <th style={{ width: columnWidths.asin, minWidth: columnWidths.asin }} className="relative group px-3 py-3 text-left font-medium text-gray-700">
-                                            <div className="flex items-center gap-1 cursor-pointer hover:text-cyan-600" onClick={() => handleSort('asin')}>
-                                                ASIN <SortIndicator column="asin" />
+                                            <div className="flex items-center gap-1">
+                                                <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('asin')}>
+                                                    ASIN <SortIndicator column="asin" />
+                                                </span>
+                                                <button 
+                                                    onClick={(e) => openTextFilterPopup(e, 'asin')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${textColumnFilters.asin ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
                                             </div>
                                             <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
                                                 onMouseDown={(e) => handleResizeStart(e, 'asin')} />
@@ -6613,14 +6650,28 @@
                                             </th>
                                         )}
                                         <th style={{ width: columnWidths.coverage, minWidth: columnWidths.coverage }} className="relative group px-3 py-3 text-center font-medium text-gray-700">
-                                            <div className="flex items-center justify-center gap-1 cursor-pointer hover:text-cyan-600" onClick={() => handleSort('coverage')}>
-                                                Coverage <SortIndicator column="coverage" />
+                                            <div className="flex items-center justify-center gap-1">
+                                                <span className="cursor-pointer hover:text-cyan-600" onClick={() => handleSort('coverage')}>
+                                                    Coverage <SortIndicator column="coverage" />
+                                                </span>
+                                                <button 
+                                                    onClick={(e) => openTextFilterPopup(e, 'coverage')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${textColumnFilters.coverage ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
                                             </div>
                                             <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
                                                 onMouseDown={(e) => handleResizeStart(e, 'coverage')} />
                                         </th>
                                         <th style={{ width: columnWidths.status, minWidth: columnWidths.status }} className="relative group px-3 py-3 text-center font-medium text-gray-700">
-                                            <div className="flex items-center justify-center gap-1">Status</div>
+                                            <div className="flex items-center justify-center gap-1">
+                                                <span>Status</span>
+                                                <button 
+                                                    onClick={(e) => openTextFilterPopup(e, 'status')}
+                                                    className={`ml-1 p-0.5 rounded hover:bg-gray-200 ${textColumnFilters.status ? 'text-cyan-600' : 'text-gray-400'}`}
+                                                    title="Filter"
+                                                >⫶</button>
+                                            </div>
                                             <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-cyan-400 group-hover:bg-gray-300" 
                                                 onMouseDown={(e) => handleResizeStart(e, 'status')} />
                                         </th>
