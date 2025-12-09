@@ -6435,7 +6435,7 @@
                     </div>
                     
                     {/* Filters */}
-                    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 relative" style={{ zIndex: 100 }}>
+                    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
                         <div className="flex flex-wrap gap-3 items-center">
                             <div className="flex-1 min-w-[200px]">
                                 <input
@@ -6474,10 +6474,11 @@
                                         </svg>
                                     </button>
                                     
-                                    {showPortfolioDropdown && (
+                                    {showPortfolioDropdown && ReactDOM.createPortal(
                                         <div 
-                                            className="fixed bg-white border border-gray-200 rounded-lg shadow-2xl w-80 dropdown-animate"
+                                            className="bg-white border border-gray-200 rounded-lg shadow-2xl w-80 dropdown-animate"
                                             style={{ 
+                                                position: 'fixed',
                                                 zIndex: 99999,
                                                 top: portfolioDropdownPos.top + 'px',
                                                 left: portfolioDropdownPos.left + 'px'
@@ -6545,7 +6546,8 @@
                                                     Clear All
                                                 </button>
                                             </div>
-                                        </div>
+                                        </div>,
+                                    document.body
                                     )}
                                 </div>
                             )}
@@ -6578,10 +6580,11 @@
                                         </svg>
                                     </button>
                                     
-                                    {showCampaignDropdown && (
+                                    {showCampaignDropdown && ReactDOM.createPortal(
                                         <div 
-                                            className="fixed bg-white border border-gray-200 rounded-lg shadow-2xl w-[420px] dropdown-animate"
+                                            className="bg-white border border-gray-200 rounded-lg shadow-2xl w-[420px] dropdown-animate"
                                             style={{ 
+                                                position: 'fixed',
                                                 zIndex: 99999,
                                                 top: campaignDropdownPos.top + 'px',
                                                 left: campaignDropdownPos.left + 'px'
@@ -6679,7 +6682,8 @@
                                                     Clear All
                                                 </button>
                                             </div>
-                                        </div>
+                                        </div>,
+                                    document.body
                                     )}
                                 </div>
                             )}
