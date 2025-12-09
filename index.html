@@ -4977,6 +4977,30 @@
             const [portfolioFilter, setPortfolioFilter] = useState('');
             const [sortConfig, setSortConfig] = useState({ key: 'spend', direction: 'desc' });
             const [expandedAsins, setExpandedAsins] = useState(new Set());
+            const [expandedMatchTypes, setExpandedMatchTypes] = useState(new Map()); // asin -> Set of matchTypes
+            
+            // Toggle match type expansion within an ASIN
+            const toggleMatchTypeExpand = (asin, matchType) => {
+                setExpandedMatchTypes(prev => {
+                    const newMap = new Map(prev);
+                    if (!newMap.has(asin)) {
+                        newMap.set(asin, new Set([matchType]));
+                    } else {
+                        const mtSet = new Set(newMap.get(asin));
+                        if (mtSet.has(matchType)) {
+                            mtSet.delete(matchType);
+                        } else {
+                            mtSet.add(matchType);
+                        }
+                        newMap.set(asin, mtSet);
+                    }
+                    return newMap;
+                });
+            };
+            
+            const isMatchTypeExpanded = (asin, matchType) => {
+                return expandedMatchTypes.has(asin) && expandedMatchTypes.get(asin).has(matchType);
+            };
             
             // Parse number helper (handles European format)
             const parseNum = (val) => {
@@ -5020,145 +5044,249 @@
                 return match ? match[1].toUpperCase() : null;
             };
             
-            // Build ASIN coverage data
+            // Build ASIN coverage data with match type breakdown
             const asinCoverageData = useMemo(() => {
                 const asinMap = new Map();
                 
-                // Process Product Ads
+                // First pass: Collect all ASINs from Product Ads with their portfolios
                 allData.filter(r => r.Entity === 'Product Ad').forEach(row => {
                     const asin = (row['ASIN (Informational only)'] || '').toUpperCase();
                     if (!asin || asin.length !== 10) return;
                     
+                    const adGroupId = row['Ad Group ID'];
+                    const campaignId = row['Campaign ID'];
+                    const portfolio = getPortfolioName(row);
+                    
                     if (!asinMap.has(asin)) {
                         asinMap.set(asin, {
                             asin,
-                            productAds: [],
-                            productTargeting: [],
+                            sku: row.SKU || '-',
+                            portfolio: portfolio !== '-' ? portfolio : null,
                             metrics: { impressions: 0, clicks: 0, spend: 0, sales: 0, orders: 0 },
-                            skus: new Set(),
-                            campaigns: new Set(),
-                            portfolios: new Set()
+                            matchTypes: new Map(), // matchType -> { metrics, campaigns: [] }
+                            adGroupIds: new Set(), // Track which ad groups this ASIN is in
+                            productAdsCount: 0
                         });
                     }
                     
                     const entry = asinMap.get(asin);
-                    entry.productAds.push({
-                        campaign: getCampaignName(row),
-                        campaignId: row['Campaign ID'],
-                        adGroup: getAdGroupName(row),
-                        adGroupId: row['Ad Group ID'],
-                        sku: row.SKU || '-',
-                        state: (row.State || '').toLowerCase(),
-                        impressions: parseNum(row.Impressions),
-                        clicks: parseNum(row.Clicks),
-                        spend: parseNum(row.Spend),
-                        sales: parseNum(row.Sales),
-                        orders: parseNum(row.Orders)
-                    });
+                    entry.adGroupIds.add(adGroupId);
+                    entry.productAdsCount++;
                     
+                    // Set portfolio from first Product Ad found (should be consistent)
+                    if (!entry.portfolio && portfolio !== '-') {
+                        entry.portfolio = portfolio;
+                    }
+                    
+                    // Aggregate Product Ad metrics
                     entry.metrics.impressions += parseNum(row.Impressions);
                     entry.metrics.clicks += parseNum(row.Clicks);
                     entry.metrics.spend += parseNum(row.Spend);
                     entry.metrics.sales += parseNum(row.Sales);
                     entry.metrics.orders += parseNum(row.Orders);
-                    
-                    if (row.SKU) entry.skus.add(row.SKU);
-                    entry.campaigns.add(getCampaignName(row));
-                    const portfolio = getPortfolioName(row);
-                    if (portfolio !== '-') entry.portfolios.add(portfolio);
                 });
                 
-                // Process Product Targeting
-                allData.filter(r => r.Entity === 'Product Targeting').forEach(row => {
-                    const asin = extractTargetingAsin(row['Product Targeting Expression']);
-                    if (!asin) return;
+                // Second pass: Process Keywords and link to ASINs via ad groups
+                allData.filter(r => r.Entity === 'Keyword').forEach(row => {
+                    const adGroupId = row['Ad Group ID'];
+                    const matchType = row['Match Type'] || 'Unknown';
+                    const state = (row.State || '').toLowerCase();
                     
-                    if (!asinMap.has(asin)) {
-                        asinMap.set(asin, {
-                            asin,
-                            productAds: [],
-                            productTargeting: [],
-                            metrics: { impressions: 0, clicks: 0, spend: 0, sales: 0, orders: 0 },
-                            skus: new Set(),
-                            campaigns: new Set(),
-                            portfolios: new Set()
-                        });
+                    // Find all ASINs in this ad group
+                    asinMap.forEach((entry, asin) => {
+                        if (!entry.adGroupIds.has(adGroupId)) return;
+                        
+                        if (!entry.matchTypes.has(matchType)) {
+                            entry.matchTypes.set(matchType, {
+                                matchType,
+                                category: matchType.startsWith('Negative') ? 'Negative' : 'Keyword',
+                                metrics: { impressions: 0, clicks: 0, spend: 0, sales: 0, orders: 0 },
+                                campaigns: [],
+                                hasEnabled: false,
+                                hasPaused: false
+                            });
+                        }
+                        
+                        const mtEntry = entry.matchTypes.get(matchType);
+                        mtEntry.metrics.impressions += parseNum(row.Impressions);
+                        mtEntry.metrics.clicks += parseNum(row.Clicks);
+                        mtEntry.metrics.spend += parseNum(row.Spend);
+                        mtEntry.metrics.sales += parseNum(row.Sales);
+                        mtEntry.metrics.orders += parseNum(row.Orders);
+                        
+                        if (state === 'enabled') mtEntry.hasEnabled = true;
+                        if (state === 'paused') mtEntry.hasPaused = true;
+                        
+                        // Add campaign detail (avoid duplicates)
+                        const campaignKey = `${row['Campaign ID']}-${adGroupId}-${row['Keyword Text']}`;
+                        if (!mtEntry.campaigns.some(c => c.key === campaignKey)) {
+                            mtEntry.campaigns.push({
+                                key: campaignKey,
+                                campaign: getCampaignName(row),
+                                campaignId: row['Campaign ID'],
+                                adGroup: getAdGroupName(row),
+                                adGroupId: adGroupId,
+                                keyword: row['Keyword Text'] || '-',
+                                bid: row.Bid || '-',
+                                state: state,
+                                impressions: parseNum(row.Impressions),
+                                clicks: parseNum(row.Clicks),
+                                spend: parseNum(row.Spend),
+                                sales: parseNum(row.Sales),
+                                orders: parseNum(row.Orders)
+                            });
+                        }
+                    });
+                });
+                
+                // Third pass: Process Product Targeting
+                allData.filter(r => r.Entity === 'Product Targeting').forEach(row => {
+                    const adGroupId = row['Ad Group ID'];
+                    const expression = row['Product Targeting Expression'] || '';
+                    const state = (row.State || '').toLowerCase();
+                    
+                    // Determine match type
+                    let matchType = null;
+                    let category = 'Product Targeting';
+                    
+                    if (expression.includes('close-match') || expression.includes('queryHighRelMatches')) {
+                        matchType = 'Auto Close Match';
+                        category = 'Auto';
+                    } else if (expression.includes('loose-match') || expression.includes('queryBroadRelMatches')) {
+                        matchType = 'Auto Loose Match';
+                        category = 'Auto';
+                    } else if (expression.includes('substitutes') || expression.includes('querySubstituteMatches')) {
+                        matchType = 'Auto Substitutes';
+                        category = 'Auto';
+                    } else if (expression.includes('complements') || expression.includes('queryComplementMatches')) {
+                        matchType = 'Auto Complements';
+                        category = 'Auto';
+                    } else if (expression.includes('category=')) {
+                        matchType = 'SP Category';
+                    } else if (expression.includes('asin-expanded=') || expression.includes('expanded-asin=')) {
+                        matchType = 'SP Product Expanded';
+                    } else if (expression.includes('asin=') || expression.includes('asin"')) {
+                        matchType = 'SP Product';
                     }
                     
-                    const entry = asinMap.get(asin);
-                    entry.productTargeting.push({
-                        campaign: getCampaignName(row),
-                        campaignId: row['Campaign ID'],
-                        adGroup: getAdGroupName(row),
-                        adGroupId: row['Ad Group ID'],
-                        expression: row['Product Targeting Expression'] || '-',
-                        bid: row.Bid || '-',
-                        state: (row.State || '').toLowerCase(),
-                        impressions: parseNum(row.Impressions),
-                        clicks: parseNum(row.Clicks),
-                        spend: parseNum(row.Spend),
-                        sales: parseNum(row.Sales),
-                        orders: parseNum(row.Orders)
+                    if (!matchType) return;
+                    
+                    // Find all ASINs in this ad group
+                    asinMap.forEach((entry, asin) => {
+                        if (!entry.adGroupIds.has(adGroupId)) return;
+                        
+                        if (!entry.matchTypes.has(matchType)) {
+                            entry.matchTypes.set(matchType, {
+                                matchType,
+                                category,
+                                metrics: { impressions: 0, clicks: 0, spend: 0, sales: 0, orders: 0 },
+                                campaigns: [],
+                                hasEnabled: false,
+                                hasPaused: false
+                            });
+                        }
+                        
+                        const mtEntry = entry.matchTypes.get(matchType);
+                        mtEntry.metrics.impressions += parseNum(row.Impressions);
+                        mtEntry.metrics.clicks += parseNum(row.Clicks);
+                        mtEntry.metrics.spend += parseNum(row.Spend);
+                        mtEntry.metrics.sales += parseNum(row.Sales);
+                        mtEntry.metrics.orders += parseNum(row.Orders);
+                        
+                        if (state === 'enabled') mtEntry.hasEnabled = true;
+                        if (state === 'paused') mtEntry.hasPaused = true;
+                        
+                        // Add campaign detail
+                        const campaignKey = `${row['Campaign ID']}-${adGroupId}-${row['Product Targeting ID']}`;
+                        if (!mtEntry.campaigns.some(c => c.key === campaignKey)) {
+                            mtEntry.campaigns.push({
+                                key: campaignKey,
+                                campaign: getCampaignName(row),
+                                campaignId: row['Campaign ID'],
+                                adGroup: getAdGroupName(row),
+                                adGroupId: adGroupId,
+                                expression: expression,
+                                bid: row.Bid || '-',
+                                state: state,
+                                impressions: parseNum(row.Impressions),
+                                clicks: parseNum(row.Clicks),
+                                spend: parseNum(row.Spend),
+                                sales: parseNum(row.Sales),
+                                orders: parseNum(row.Orders)
+                            });
+                        }
                     });
-                    
-                    entry.metrics.impressions += parseNum(row.Impressions);
-                    entry.metrics.clicks += parseNum(row.Clicks);
-                    entry.metrics.spend += parseNum(row.Spend);
-                    entry.metrics.sales += parseNum(row.Sales);
-                    entry.metrics.orders += parseNum(row.Orders);
-                    
-                    entry.campaigns.add(getCampaignName(row));
-                    const portfolio = getPortfolioName(row);
-                    if (portfolio !== '-') entry.portfolios.add(portfolio);
+                });
+                
+                // Get all possible match types for "missing" detection
+                const allMatchTypes = new Set();
+                asinMap.forEach(entry => {
+                    entry.matchTypes.forEach((_, mt) => allMatchTypes.add(mt));
                 });
                 
                 // Calculate derived metrics and coverage status
                 return Array.from(asinMap.values()).map(entry => {
-                    const hasProductAds = entry.productAds.length > 0;
-                    const hasProductTargeting = entry.productTargeting.length > 0;
-                    const productAdsEnabled = entry.productAds.some(pa => pa.state === 'enabled');
-                    const productTargetingEnabled = entry.productTargeting.some(pt => pt.state === 'enabled');
+                    const m = entry.metrics;
                     
-                    let coverage = 'missing';
-                    if (hasProductAds && hasProductTargeting) coverage = 'full';
-                    else if (hasProductAds || hasProductTargeting) coverage = 'partial';
+                    // Convert match types map to array with calculated metrics
+                    const matchTypesArray = Array.from(entry.matchTypes.values()).map(mt => {
+                        const mtm = mt.metrics;
+                        return {
+                            ...mt,
+                            status: mt.hasEnabled ? 'enabled' : (mt.hasPaused ? 'paused' : 'none'),
+                            acos: mtm.sales > 0 ? (mtm.spend / mtm.sales * 100) : 0,
+                            ctr: mtm.impressions > 0 ? (mtm.clicks / mtm.impressions * 100) : 0,
+                            cvr: mtm.clicks > 0 ? (mtm.orders / mtm.clicks * 100) : 0,
+                            cpc: mtm.clicks > 0 ? (mtm.spend / mtm.clicks) : 0,
+                            roas: mtm.spend > 0 ? (mtm.sales / mtm.spend) : 0
+                        };
+                    }).sort((a, b) => b.metrics.spend - a.metrics.spend);
+                    
+                    // Find missing match types
+                    const presentMatchTypes = new Set(entry.matchTypes.keys());
+                    const missingMatchTypes = Array.from(allMatchTypes).filter(mt => !presentMatchTypes.has(mt));
+                    
+                    // Determine overall status
+                    const hasEnabled = matchTypesArray.some(mt => mt.status === 'enabled');
+                    const hasPaused = matchTypesArray.some(mt => mt.status === 'paused');
                     
                     let status = 'none';
-                    if (productAdsEnabled || productTargetingEnabled) status = 'enabled';
-                    else if (hasProductAds || hasProductTargeting) status = 'paused';
+                    if (hasEnabled) status = 'enabled';
+                    else if (hasPaused) status = 'paused';
+                    
+                    // Coverage based on match type count
+                    const totalPossibleTypes = allMatchTypes.size;
+                    const coveredTypes = matchTypesArray.filter(mt => mt.status === 'enabled').length;
+                    let coverage = 'missing';
+                    if (coveredTypes >= totalPossibleTypes * 0.8) coverage = 'full';
+                    else if (coveredTypes > 0) coverage = 'partial';
                     
                     return {
-                        ...entry,
-                        skus: Array.from(entry.skus),
-                        campaigns: Array.from(entry.campaigns),
-                        portfolios: Array.from(entry.portfolios),
-                        hasProductAds,
-                        hasProductTargeting,
-                        productAdsEnabled,
-                        productTargetingEnabled,
+                        asin: entry.asin,
+                        sku: entry.sku,
+                        portfolio: entry.portfolio || '-',
+                        metrics: m,
+                        matchTypes: matchTypesArray,
+                        missingMatchTypes,
+                        matchTypeCount: matchTypesArray.length,
+                        enabledMatchTypeCount: matchTypesArray.filter(mt => mt.status === 'enabled').length,
                         coverage,
                         status,
-                        acos: entry.metrics.spend > 0 && entry.metrics.sales > 0 
-                            ? (entry.metrics.spend / entry.metrics.sales * 100) 
-                            : 0,
-                        ctr: entry.metrics.impressions > 0 
-                            ? (entry.metrics.clicks / entry.metrics.impressions * 100) 
-                            : 0,
-                        cpc: entry.metrics.clicks > 0 
-                            ? (entry.metrics.spend / entry.metrics.clicks) 
-                            : 0,
-                        convRate: entry.metrics.clicks > 0 
-                            ? (entry.metrics.orders / entry.metrics.clicks * 100) 
-                            : 0
+                        acos: m.spend > 0 && m.sales > 0 ? (m.spend / m.sales * 100) : 0,
+                        ctr: m.impressions > 0 ? (m.clicks / m.impressions * 100) : 0,
+                        cpc: m.clicks > 0 ? (m.spend / m.clicks) : 0,
+                        convRate: m.clicks > 0 ? (m.orders / m.clicks * 100) : 0
                     };
                 });
-            }, [allData]);
+            }, [allData]); 
             
             // Get unique portfolios
             const portfolioList = useMemo(() => {
                 const portfolios = new Set();
                 asinCoverageData.forEach(entry => {
-                    entry.portfolios.forEach(p => portfolios.add(p));
+                    if (entry.portfolio && entry.portfolio !== '-') {
+                        portfolios.add(entry.portfolio);
+                    }
                 });
                 return Array.from(portfolios).sort();
             }, [asinCoverageData]);
@@ -5172,8 +5300,8 @@
                     const term = searchTerm.toLowerCase();
                     result = result.filter(entry => 
                         entry.asin.toLowerCase().includes(term) ||
-                        entry.skus.some(s => s.toLowerCase().includes(term)) ||
-                        entry.campaigns.some(c => c.toLowerCase().includes(term))
+                        (entry.sku && entry.sku.toLowerCase().includes(term)) ||
+                        (entry.portfolio && entry.portfolio.toLowerCase().includes(term))
                     );
                 }
                 
@@ -5189,7 +5317,7 @@
                 
                 // Portfolio filter
                 if (portfolioFilter) {
-                    result = result.filter(entry => entry.portfolios.includes(portfolioFilter));
+                    result = result.filter(entry => entry.portfolio === portfolioFilter);
                 }
                 
                 // Sort
@@ -5256,16 +5384,17 @@
             
             // Export to CSV
             const exportToCsv = () => {
-                const headers = ['ASIN', 'SKUs', 'Coverage', 'Status', 'Has Product Ads', 'Has Product Targeting', 
-                    'Impressions', 'Clicks', 'Spend', 'Sales', 'ACOS', 'CTR', 'CPC', 'Conv Rate', 'Campaigns', 'Portfolios'];
+                const headers = ['ASIN', 'SKU', 'Portfolio', 'Coverage', 'Status', 'Match Types (Active)', 'Match Types (Missing)',
+                    'Impressions', 'Clicks', 'Spend', 'Sales', 'ACOS', 'CTR', 'CPC', 'Conv Rate'];
                 
                 const rows = filteredData.map(entry => [
                     entry.asin,
-                    entry.skus.join('; '),
+                    entry.sku || '-',
+                    entry.portfolio || '-',
                     entry.coverage,
                     entry.status,
-                    entry.hasProductAds ? 'Yes' : 'No',
-                    entry.hasProductTargeting ? 'Yes' : 'No',
+                    entry.matchTypes.filter(mt => mt.status === 'enabled').map(mt => mt.matchType).join('; ') || 'None',
+                    entry.missingMatchTypes.join('; ') || 'None',
                     entry.metrics.impressions,
                     entry.metrics.clicks,
                     entry.metrics.spend.toFixed(2),
@@ -5273,9 +5402,7 @@
                     entry.acos.toFixed(2) + '%',
                     entry.ctr.toFixed(2) + '%',
                     entry.cpc.toFixed(2),
-                    entry.convRate.toFixed(2) + '%',
-                    entry.campaigns.join('; '),
-                    entry.portfolios.join('; ')
+                    entry.convRate.toFixed(2) + '%'
                 ]);
                 
                 const csvContent = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
@@ -5462,8 +5589,8 @@
                                         <React.Fragment key={entry.asin}>
                                             <tr className="hover:bg-gray-50 transition">
                                                 <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">{entry.asin}</td>
-                                                <td className="px-4 py-3 text-xs text-gray-600 max-w-[150px] truncate" title={entry.skus.join(', ')}>
-                                                    {entry.skus.length > 0 ? entry.skus.slice(0, 2).join(', ') + (entry.skus.length > 2 ? ` +${entry.skus.length - 2}` : '') : '-'}
+                                                <td className="px-4 py-3 text-xs text-gray-600 max-w-[150px] truncate" title={entry.sku}>
+                                                    {entry.sku || '-'}
                                                 </td>
                                                 <td className="px-4 py-3 text-center">{getCoverageBadge(entry.coverage)}</td>
                                                 <td className="px-4 py-3 text-center">{getStatusBadge(entry.status)}</td>
@@ -5493,85 +5620,159 @@
                                                 <tr>
                                                     <td colSpan="12" className="px-4 py-4 bg-gray-50">
                                                         <div className="space-y-4">
-                                                            {/* Coverage Status */}
-                                                            <div className="grid grid-cols-2 gap-4">
-                                                                <div className={`p-3 rounded-lg border ${entry.hasProductAds ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                                                                    <div className="flex items-center gap-2 mb-2">
-                                                                        <span className="text-lg">{entry.hasProductAds ? '✅' : '❌'}</span>
-                                                                        <span className="font-semibold text-sm">Product Ads</span>
-                                                                        <span className="text-xs text-gray-500">({entry.productAds.length} found)</span>
-                                                                    </div>
-                                                                    {entry.productAds.length > 0 ? (
-                                                                        <div className="space-y-1 max-h-32 overflow-y-auto">
-                                                                            {entry.productAds.map((pa, idx) => (
-                                                                                <div key={idx} className="text-xs p-2 bg-white rounded border border-gray-200">
-                                                                                    <div className="flex justify-between">
-                                                                                        <span className="font-medium truncate max-w-[200px]" title={pa.campaign}>{pa.campaign}</span>
-                                                                                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${pa.state === 'enabled' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                                                                                            {pa.state}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                    <div className="text-gray-500 truncate" title={pa.adGroup}>{pa.adGroup} • SKU: {pa.sku}</div>
-                                                                                    <div className="text-gray-400 mt-1">
-                                                                                        Spend: ${pa.spend.toFixed(2)} • Sales: ${pa.sales.toFixed(2)}
-                                                                                    </div>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="text-xs text-red-600 p-2 bg-white rounded border border-red-200">
-                                                                            ⚠️ No Product Ads found for this ASIN. Consider adding it as a Product Ad.
-                                                                        </div>
-                                                                    )}
+                                                            {/* ASIN Info Header */}
+                                                            <div className="flex items-center gap-4 text-sm">
+                                                                <div className="bg-white px-3 py-2 rounded-lg border border-gray-200">
+                                                                    <span className="text-gray-500">Portfolio:</span>
+                                                                    <span className="ml-2 font-medium text-gray-900">{entry.portfolio}</span>
                                                                 </div>
-                                                                
-                                                                <div className={`p-3 rounded-lg border ${entry.hasProductTargeting ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                                                                    <div className="flex items-center gap-2 mb-2">
-                                                                        <span className="text-lg">{entry.hasProductTargeting ? '✅' : '❌'}</span>
-                                                                        <span className="font-semibold text-sm">Product Targeting</span>
-                                                                        <span className="text-xs text-gray-500">({entry.productTargeting.length} found)</span>
-                                                                    </div>
-                                                                    {entry.productTargeting.length > 0 ? (
-                                                                        <div className="space-y-1 max-h-32 overflow-y-auto">
-                                                                            {entry.productTargeting.map((pt, idx) => (
-                                                                                <div key={idx} className="text-xs p-2 bg-white rounded border border-gray-200">
-                                                                                    <div className="flex justify-between">
-                                                                                        <span className="font-medium truncate max-w-[200px]" title={pt.campaign}>{pt.campaign}</span>
-                                                                                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${pt.state === 'enabled' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                                                                                            {pt.state}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                    <div className="text-gray-500 truncate" title={pt.adGroup}>{pt.adGroup} • Bid: {pt.bid}</div>
-                                                                                    <div className="text-gray-400 mt-1">
-                                                                                        Spend: ${pt.spend.toFixed(2)} • Sales: ${pt.sales.toFixed(2)}
-                                                                                    </div>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="text-xs text-red-600 p-2 bg-white rounded border border-red-200">
-                                                                            ⚠️ No Product Targeting found for this ASIN. Consider adding ASIN targeting.
-                                                                        </div>
+                                                                <div className="bg-white px-3 py-2 rounded-lg border border-gray-200">
+                                                                    <span className="text-gray-500">Match Types:</span>
+                                                                    <span className="ml-2 font-medium text-green-600">{entry.enabledMatchTypeCount} active</span>
+                                                                    {entry.missingMatchTypes.length > 0 && (
+                                                                        <span className="ml-2 text-red-500">({entry.missingMatchTypes.length} missing)</span>
                                                                     )}
                                                                 </div>
                                                             </div>
                                                             
-                                                            {/* Additional Info */}
-                                                            <div className="grid grid-cols-3 gap-4 text-xs">
-                                                                <div className="bg-white p-3 rounded-lg border border-gray-200">
-                                                                    <div className="font-semibold text-gray-700 mb-1">Portfolios</div>
-                                                                    <div className="text-gray-600">{entry.portfolios.length > 0 ? entry.portfolios.join(', ') : 'None'}</div>
+                                                            {/* Match Types Table */}
+                                                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                                                                <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
+                                                                    <span className="font-semibold text-gray-700">Match Type Coverage for {entry.asin}</span>
                                                                 </div>
-                                                                <div className="bg-white p-3 rounded-lg border border-gray-200">
-                                                                    <div className="font-semibold text-gray-700 mb-1">Campaigns ({entry.campaigns.length})</div>
-                                                                    <div className="text-gray-600 max-h-16 overflow-y-auto">{entry.campaigns.join(', ')}</div>
-                                                                </div>
-                                                                <div className="bg-white p-3 rounded-lg border border-gray-200">
-                                                                    <div className="font-semibold text-gray-700 mb-1">Additional Metrics</div>
-                                                                    <div className="text-gray-600">
-                                                                        CTR: {entry.ctr.toFixed(2)}% • CPC: ${entry.cpc.toFixed(2)} • Conv: {entry.convRate.toFixed(2)}%
-                                                                    </div>
-                                                                </div>
+                                                                <table className="w-full text-xs">
+                                                                    <thead className="bg-gray-50">
+                                                                        <tr>
+                                                                            <th className="px-3 py-2 text-left font-medium text-gray-600 w-8"></th>
+                                                                            <th className="px-3 py-2 text-left font-medium text-gray-600">Match Type</th>
+                                                                            <th className="px-3 py-2 text-center font-medium text-gray-600">Status</th>
+                                                                            <th className="px-3 py-2 text-right font-medium text-gray-600">Impr.</th>
+                                                                            <th className="px-3 py-2 text-right font-medium text-gray-600">Clicks</th>
+                                                                            <th className="px-3 py-2 text-right font-medium text-gray-600">Spend</th>
+                                                                            <th className="px-3 py-2 text-right font-medium text-gray-600">Sales</th>
+                                                                            <th className="px-3 py-2 text-right font-medium text-gray-600">CTR</th>
+                                                                            <th className="px-3 py-2 text-right font-medium text-gray-600">CVR</th>
+                                                                            <th className="px-3 py-2 text-right font-medium text-gray-600">ACOS</th>
+                                                                            <th className="px-3 py-2 text-center font-medium text-gray-600">Campaigns</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-100">
+                                                                        {/* Active/Paused Match Types */}
+                                                                        {entry.matchTypes.map((mt) => (
+                                                                            <React.Fragment key={mt.matchType}>
+                                                                                <tr className={`hover:bg-gray-50 ${isMatchTypeExpanded(entry.asin, mt.matchType) ? 'bg-blue-50' : ''}`}>
+                                                                                    <td className="px-3 py-2">
+                                                                                        {mt.campaigns.length > 0 && (
+                                                                                            <button
+                                                                                                onClick={() => toggleMatchTypeExpand(entry.asin, mt.matchType)}
+                                                                                                className="text-gray-400 hover:text-gray-600"
+                                                                                            >
+                                                                                                {isMatchTypeExpanded(entry.asin, mt.matchType) ? '▼' : '▶'}
+                                                                                            </button>
+                                                                                        )}
+                                                                                    </td>
+                                                                                    <td className="px-3 py-2 font-medium text-gray-900">{mt.matchType}</td>
+                                                                                    <td className="px-3 py-2 text-center">
+                                                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                                                                                            mt.status === 'enabled' ? 'bg-green-100 text-green-700' : 
+                                                                                            mt.status === 'paused' ? 'bg-orange-100 text-orange-700' : 
+                                                                                            'bg-gray-100 text-gray-600'
+                                                                                        }`}>
+                                                                                            {mt.status}
+                                                                                        </span>
+                                                                                    </td>
+                                                                                    <td className="px-3 py-2 text-right text-gray-600">{formatNum(mt.metrics.impressions)}</td>
+                                                                                    <td className="px-3 py-2 text-right text-gray-600">{formatNum(mt.metrics.clicks)}</td>
+                                                                                    <td className="px-3 py-2 text-right font-medium">${mt.metrics.spend.toFixed(2)}</td>
+                                                                                    <td className="px-3 py-2 text-right font-medium">${mt.metrics.sales.toFixed(2)}</td>
+                                                                                    <td className="px-3 py-2 text-right text-gray-600">{mt.ctr.toFixed(2)}%</td>
+                                                                                    <td className="px-3 py-2 text-right text-gray-600">{mt.cvr.toFixed(2)}%</td>
+                                                                                    <td className={`px-3 py-2 text-right font-bold ${getAcosColor(mt.acos)}`}>
+                                                                                        {mt.acos > 0 ? mt.acos.toFixed(1) + '%' : '-'}
+                                                                                    </td>
+                                                                                    <td className="px-3 py-2 text-center">
+                                                                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[10px]">
+                                                                                            {mt.campaigns.length}
+                                                                                        </span>
+                                                                                    </td>
+                                                                                </tr>
+                                                                                {/* Expanded Campaigns for this Match Type */}
+                                                                                {isMatchTypeExpanded(entry.asin, mt.matchType) && (
+                                                                                    <tr>
+                                                                                        <td colSpan="11" className="bg-blue-50 px-6 py-3">
+                                                                                            <div className="text-xs">
+                                                                                                <div className="font-semibold text-gray-700 mb-2">
+                                                                                                    Campaigns with {mt.matchType} for this ASIN:
+                                                                                                </div>
+                                                                                                <div className="bg-white rounded border border-gray-200 overflow-hidden">
+                                                                                                    <table className="w-full">
+                                                                                                        <thead className="bg-gray-50">
+                                                                                                            <tr>
+                                                                                                                <th className="px-3 py-1.5 text-left font-medium text-gray-500">Campaign</th>
+                                                                                                                <th className="px-3 py-1.5 text-left font-medium text-gray-500">Ad Group</th>
+                                                                                                                <th className="px-3 py-1.5 text-left font-medium text-gray-500">{mt.category === 'Keyword' ? 'Keyword' : 'Target'}</th>
+                                                                                                                <th className="px-3 py-1.5 text-center font-medium text-gray-500">State</th>
+                                                                                                                <th className="px-3 py-1.5 text-right font-medium text-gray-500">Bid</th>
+                                                                                                                <th className="px-3 py-1.5 text-right font-medium text-gray-500">Spend</th>
+                                                                                                                <th className="px-3 py-1.5 text-right font-medium text-gray-500">Sales</th>
+                                                                                                            </tr>
+                                                                                                        </thead>
+                                                                                                        <tbody className="divide-y divide-gray-100">
+                                                                                                            {mt.campaigns.map((camp, idx) => (
+                                                                                                                <tr key={idx} className="hover:bg-gray-50">
+                                                                                                                    <td className="px-3 py-1.5 text-gray-900 truncate max-w-[200px]" title={camp.campaign}>{camp.campaign}</td>
+                                                                                                                    <td className="px-3 py-1.5 text-gray-600 truncate max-w-[150px]" title={camp.adGroup}>{camp.adGroup}</td>
+                                                                                                                    <td className="px-3 py-1.5 text-gray-600 truncate max-w-[150px]" title={camp.keyword || camp.expression}>
+                                                                                                                        {camp.keyword || (camp.expression ? camp.expression.substring(0, 30) + '...' : '-')}
+                                                                                                                    </td>
+                                                                                                                    <td className="px-3 py-1.5 text-center">
+                                                                                                                        <span className={`px-1.5 py-0.5 rounded text-[9px] ${
+                                                                                                                            camp.state === 'enabled' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                                                                                                                        }`}>
+                                                                                                                            {camp.state}
+                                                                                                                        </span>
+                                                                                                                    </td>
+                                                                                                                    <td className="px-3 py-1.5 text-right text-gray-600">{camp.bid}</td>
+                                                                                                                    <td className="px-3 py-1.5 text-right">${camp.spend.toFixed(2)}</td>
+                                                                                                                    <td className="px-3 py-1.5 text-right">${camp.sales.toFixed(2)}</td>
+                                                                                                                </tr>
+                                                                                                            ))}
+                                                                                                        </tbody>
+                                                                                                    </table>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                )}
+                                                                            </React.Fragment>
+                                                                        ))}
+                                                                        
+                                                                        {/* Missing Match Types */}
+                                                                        {entry.missingMatchTypes.map((mt) => (
+                                                                            <tr key={mt} className="bg-red-50">
+                                                                                <td className="px-3 py-2"></td>
+                                                                                <td className="px-3 py-2 font-medium text-gray-500">{mt}</td>
+                                                                                <td className="px-3 py-2 text-center">
+                                                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">
+                                                                                        missing
+                                                                                    </span>
+                                                                                </td>
+                                                                                <td className="px-3 py-2 text-right text-gray-400">-</td>
+                                                                                <td className="px-3 py-2 text-right text-gray-400">-</td>
+                                                                                <td className="px-3 py-2 text-right text-gray-400">-</td>
+                                                                                <td className="px-3 py-2 text-right text-gray-400">-</td>
+                                                                                <td className="px-3 py-2 text-right text-gray-400">-</td>
+                                                                                <td className="px-3 py-2 text-right text-gray-400">-</td>
+                                                                                <td className="px-3 py-2 text-right text-gray-400">-</td>
+                                                                                <td className="px-3 py-2 text-center">
+                                                                                    <span className="px-2 py-0.5 bg-red-100 text-red-600 rounded-full text-[10px]">
+                                                                                        0
+                                                                                    </span>
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
                                                             </div>
                                                         </div>
                                                     </td>
